@@ -1,0 +1,508 @@
+# minimal-atc-rl/envs/atc/model.py
+import math
+import random
+from typing import List
+
+import numpy as np
+import shapely.geometry as geom
+import shapely.ops
+from numba import jit  # Numba provides just-in-time compilation for faster execution
+
+# Conversion constant: 1 nautical mile = 6076 feet. I know it's distance now, fkn Pranjal.
+nautical_miles_to_feet = 6076  # ft/nm
+
+class Airplane:
+    def __init__(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
+        """
+        Represents an aircraft in the simulation with its physical properties and constraints.
+        
+        :param sim_parameters: Object containing general simulation parameters
+        :param name: Identifier for the flight/airplane (e.g., "FLT01")
+        :param x: X-coordinate in nautical miles
+        :param y: Y-coordinate in nautical miles
+        :param h: Altitude in feet
+        :param phi: Heading angle in degrees (0-360)
+        :param v: Speed in knots
+        :param v_min: Minimum allowed speed in knots
+        :param v_max: Maximum allowed speed in knots
+        :param h_min: Minimum allowed altitude in feet
+        :param h_max: Maximum allowed altitude in feet        
+        """
+        self.sim_parameters = sim_parameters
+        self.name = name
+        self.x = x
+        self.y = y
+        self.h = h
+        # Validate that altitude is within allowed range
+        if (h < h_min) or (h > h_max):
+            raise ValueError("invalid altitude")
+        self.v = v
+        # Validate that speed is within allowed range
+        if (v < v_min) or (v > v_max):
+            raise ValueError("invalid velocity")
+        self.phi = phi
+        self.h_min = h_min
+        self.h_max = h_max
+        self.v_min = v_min
+        self.v_max = v_max
+        # Maximum descent rate in feet per second
+        self.h_dot_min = -41
+        # Maximum climb rate in feet per second
+        self.h_dot_max = 15
+        # Maximum acceleration in knots per second
+        self.a_max = 5
+        # Maximum deceleration in knots per second
+        self.a_min = -5
+        # Maximum turn rate in degrees per second (right turn)
+        self.phi_dot_max = 3
+        # Maximum turn rate in degrees per second (left turn)
+        self.phi_dot_min = -3
+        # Stores previous positions for tracking/visualization
+        self.position_history = []
+        # Random identifier for this airplane instance
+        self.id = random.randint(0, 32767) # i don't understand his rationale behind that number 32767 
+
+    def above_mva(self, mvas):
+        """
+        Checks if the aircraft is above the Minimum Vectoring Altitude (MVA) for its current position.
+        
+        :param mvas: List of MVA areas
+        :return: True if aircraft is above the MVA, False otherwise
+        :raises ValueError: If aircraft is outside the defined airspace
+        """
+        for mva in mvas:
+            if mva.area.contains(geom.Point(self.x, self.y)):
+                return self.h >= mva.height
+        # If no MVA contains the aircraft's position, it's outside the airspace
+        raise ValueError('Outside of airspace')
+
+    def action_v(self, action_v):
+        """
+        Updates the aircraft's speed based on ATC command.
+        
+        The target speed will be constrained by the aircraft's performance limits:
+        - Speed must be between v_min and v_max
+        - Acceleration/deceleration cannot exceed a_max/a_min per timestep
+        
+        :param action_v: Target speed in knots
+        :raises ValueError: If requested speed is outside allowed range
+        """
+        if action_v < self.v_min:
+            raise ValueError("invalid speed")
+        if action_v > self.v_max:
+            raise ValueError("invalid speed")
+            
+        # Calculate requested speed change
+        delta_v = action_v - self.v
+        
+        # Limit acceleration to aircraft performance constraints
+        delta_v = min(delta_v, self.a_max * self.sim_parameters.timestep) #constrained by max and min acceleration specified above.
+        
+        # Limit deceleration to aircraft performance constraints
+        delta_v = max(delta_v, self.a_min * self.sim_parameters.timestep)
+        
+        # Apply the constrained speed change
+        self.v = self.v + delta_v
+
+    def action_h(self, action_h):
+        """
+        Updates the aircraft's altitude based on ATC command.
+        
+        The target altitude will be constrained by the aircraft's performance limits:
+        - Altitude must be between h_min and h_max
+        - Climb/descent rate cannot exceed h_dot_max/h_dot_min per timestep
+        
+        :param action_h: Target altitude in feet
+        :raises ValueError: If requested altitude is outside allowed range
+        """
+        if action_h < self.h_min:
+            raise ValueError("invalid altitude")
+        if action_h > self.h_max:
+            raise ValueError("invalid altitude")
+            
+        # Calculate requested altitude change
+        delta_h = action_h - self.h
+        
+        # Limit climb rate to aircraft performance constraints
+        delta_h = min(delta_h, self.h_dot_max * self.sim_parameters.timestep) # same shit as above
+        
+        # Limit descent rate to aircraft performance constraints
+        delta_h = max(delta_h, self.h_dot_min * self.sim_parameters.timestep)
+        
+        # Apply the constrained altitude change
+        self.h = self.h + delta_h
+
+    def action_phi(self, action_phi):
+        """
+        Updates the aircraft's heading based on ATC command.
+        
+        The turn rate will be constrained by the aircraft's performance limits:
+        - Turn rate cannot exceed phi_dot_max/phi_dot_min per timestep
+        
+        :param action_phi: Target heading in degrees (0-360)
+        """
+        # Calculate the relative angle between current and target heading
+        delta_phi = relative_angle(self.phi, action_phi)
+        
+        # Limit turn rate to aircraft performance constraints (right turn)
+        delta_phi = min(delta_phi, self.phi_dot_max * self.sim_parameters.timestep) # literally done same shit everywhere, stop this madman
+        
+        # Limit turn rate to aircraft performance constraints (left turn)
+        delta_phi = max(delta_phi, self.phi_dot_min * self.sim_parameters.timestep)
+        
+        # Apply the constrained heading change, keeping within 0-360 range
+        self.phi = (self.phi + delta_phi) % 360
+
+    def step(self):
+        """
+        Updates the aircraft's position based on its current heading and speed.
+        Called every simulation timestep to advance the aircraft's state.
+        """
+        # Record the current position in history
+        self.position_history.append((self.x, self.y))
+        
+        # Convert speed from knots to distance per timestep
+        # Formula: (speed in knots / 3600 seconds per hour) * timestep
+        v_unrotated = np.array([[0], [(self.v / 3600) * self.sim_parameters.timestep]])
+        
+        # Calculate position change using rotation matrix based on heading
+        delta_x_y = np.dot(rot_matrix(self.phi), v_unrotated) # linear algebra ho gaya bhai sahab
+        
+        # Update position
+        self.x += delta_x_y[0][0]
+        self.y += delta_x_y[1][0]
+
+class SimParameters:
+    def __init__(self, timestep: float, precision: float = 0.5, reward_shaping: bool = True,
+                 normalize_state: bool = True, discrete_action_space: bool = False):
+        """
+        Contains parameters that configure the simulation behavior.
+        
+        :param timestep: Simulation time increment in seconds
+        :param precision: Epsilon value for floating-point comparisons
+        :param reward_shaping: Whether to use reward shaping techniques for reinforcement learning
+        :param normalize_state: Whether to normalize state values for reinforcement learning algorithms
+        :param discrete_action_space: Whether to use discrete or continuous action space
+        """
+        self.timestep = timestep
+        self.precision = precision
+        self.reward_shaping = reward_shaping
+        self.normalize_state = normalize_state
+        self.discrete_action_space = discrete_action_space
+
+class Corridor:
+    def __init__(self, x: int, y: int, h: int, phi_from_runway: int):
+        """
+        Defines the approach corridor for an aircraft to land.
+        This is a 3D space where aircraft must be positioned to properly approach the runway.
+        
+        :param x: X-coordinate of the runway threshold
+        :param y: Y-coordinate of the runway threshold
+        :param h: Altitude of the runway threshold
+        :param phi_from_runway: Heading from the runway (opposite of landing direction)
+        """
+        self.x = x
+        self.y = y
+        self.h = h
+        
+        # Direction flying away from the runway
+        self.phi_from_runway = phi_from_runway
+        
+        # Direction flying toward the runway (landing direction)
+        self.phi_to_runway = (phi_from_runway + 180) % 360
+        
+        # Unit vector perpendicular to the runway direction
+        self._faf_iaf_normal = np.dot(rot_matrix(self.phi_from_runway), np.array([[0], [1]]))
+
+        # Distance from threshold to FAF (Final Approach Fix) in nautical miles
+        faf_threshold_distance = 7.4
+        
+        # Angle defining the corridor width (degrees from centerline)
+        faf_angle = 45
+        self.faf_angle = faf_angle
+        
+        # Distance from FAF to IAF (Initial Approach Fix) in nautical miles
+        faf_iaf_distance = 3
+        
+        # Calculate distance to corridor corners accounting for the corridor angle
+        faf_iaf_distance_corner = faf_iaf_distance / math.cos(math.radians(faf_angle))
+        
+        # Calculate FAF position (vector from runway threshold along approach path)
+        self.faf = np.array([[x], [y]]) + np.dot(rot_matrix(phi_from_runway),
+                                                 np.array([[0], [faf_threshold_distance]]))
+        
+        # Calculate positions of corridor corners at FAF
+        self.corner1 = np.dot(rot_matrix(faf_angle),
+                              np.dot(rot_matrix(phi_from_runway), [[0], [faf_iaf_distance_corner]])) + self.faf
+        self.corner2 = np.dot(rot_matrix(-faf_angle),
+                              np.dot(rot_matrix(phi_from_runway), [[0], [faf_iaf_distance_corner]])) + self.faf
+        
+        # Define the horizontal corridor area at FAF
+        self.corridor_horizontal = geom.Polygon([
+            (self.faf[0][0], self.faf[1][0]), 
+            (self.corner1[0][0], self.corner1[1][0]), 
+            (self.corner2[0][0], self.corner2[1][0])
+        ])
+        
+        # Calculate IAF position (extends further from FAF)
+        self.iaf = np.array([[x], [y]]) + np.dot(rot_matrix(phi_from_runway),
+                                                 np.array([[0], [faf_threshold_distance + faf_iaf_distance]]))
+        
+        # Define the two sides of the approach corridor
+        self.corridor1 = geom.Polygon([
+            (self.faf[0][0], self.faf[1][0]), 
+            (self.corner1[0][0], self.corner1[1][0]), 
+            (self.iaf[0][0], self.iaf[1][0])
+        ])
+        self.corridor2 = geom.Polygon([
+            (self.faf[0][0], self.faf[1][0]), 
+            (self.corner2[0][0], self.corner2[1][0]), 
+            (self.iaf[0][0], self.iaf[1][0])
+        ])
+
+        # Convert polygon coordinates to arrays for faster checking with ray tracing
+        self.corridor_horizontal_list = np.array(list(self.corridor_horizontal.exterior.coords))
+        self.corridor1_list = np.array(list(self.corridor1.exterior.coords))
+        self.corridor2_list = np.array(list(self.corridor2.exterior.coords))
+
+    def inside_corridor(self, x, y, h, phi):
+        """
+        Checks if an aircraft at a given position and heading is properly positioned
+        within the approach corridor.
+        
+        :param x: X-coordinate of the aircraft
+        :param y: Y-coordinate of the aircraft
+        :param h: Altitude of the aircraft in feet
+        :param phi: Heading of the aircraft in degrees
+        :return: True if aircraft is in the corridor, False otherwise
+        """
+        # First check if aircraft is horizontally within the corridor
+        if not ray_tracing(x, y, self.corridor_horizontal_list):
+            return False
+
+        # Calculate the vertical constraints (glideslope)
+        # Find the projection of aircraft position onto the approach path
+        p = np.array([[x, y]])
+        t = np.dot(p - np.transpose(self.faf), self._faf_iaf_normal)
+        projection_on_faf_iaf = self.faf + t * self._faf_iaf_normal
+        
+        # Calculate maximum allowed altitude at current distance
+        # Uses a 3-degree glideslope angle
+        h_max_on_projection = np.linalg.norm(projection_on_faf_iaf - np.array([[self.x], [self.y]])) * \
+                              math.tan(3 * math.pi / 180) * nautical_miles_to_feet + self.h
+
+        # Check if aircraft is below the glideslope
+        if not h <= h_max_on_projection:
+            return False
+
+        # Check if aircraft has the correct heading for the approach
+        return self._inside_corridor_angle(x, y, phi)
+
+    def _inside_corridor_angle(self, x, y, phi):
+        """
+        Checks if an aircraft has the correct heading based on which side of the corridor it's in.
+        
+        :param x: X-coordinate of the aircraft
+        :param y: Y-coordinate of the aircraft
+        :param phi: Heading of the aircraft in degrees
+        :return: True if aircraft has a valid heading for its position, False otherwise
+        """
+        direction_correct = False
+        to_runway = self.phi_to_runway
+        
+        # Calculate the angle between the aircraft's heading and the runway direction
+        # This is complex geometry to determine acceptable approach angles
+        beta = self.faf_angle - np.arccos(
+            np.dot(
+                np.transpose(np.dot(rot_matrix(to_runway), np.array([[0], [1]]))),
+                np.dot(rot_matrix(phi), np.array([[0], [1]]))
+            )
+        )[0][0]
+        min_angle = self.faf_angle - beta
+        
+        # Check if aircraft is in corridor1 (right side) with correct heading
+        if ray_tracing(x, y, self.corridor1_list) and min_angle <= relative_angle(to_runway, phi) <= self.faf_angle:
+            direction_correct = True
+        # Check if aircraft is in corridor2 (left side) with correct heading    
+        elif ray_tracing(x, y, self.corridor2_list) and min_angle <= relative_angle(phi, to_runway) <= self.faf_angle:
+            direction_correct = True
+
+        return direction_correct
+
+class Runway:
+    def __init__(self, x, y, h, phi):
+        """
+        Represents a runway in the simulation.
+        
+        :param x: X-coordinate of the runway threshold
+        :param y: Y-coordinate of the runway threshold
+        :param h: Altitude of the runway threshold in feet
+        :param phi: Heading from the runway (opposite of landing direction)
+        """
+        self.x = x
+        self.y = y
+        self.h = h
+        self.phi_from_runway = phi
+        # Landing direction (opposite of phi_from_runway)
+        self.phi_to_runway = (phi + 180) % 360
+        # Create the approach corridor for this runway
+        self.corridor = Corridor(x, y, h, phi)
+
+    def inside_corridor(self, x: int, y: int, h: int, phi: int):
+        """
+        Checks if an aircraft at a given position and heading is properly positioned
+        within this runway's approach corridor.
+        
+        :param x: X-coordinate of the aircraft
+        :param y: Y-coordinate of the aircraft
+        :param h: Altitude of the aircraft in feet
+        :param phi: Heading of the aircraft in degrees
+        :return: True if aircraft is in the corridor, False otherwise
+        """
+        return self.corridor.inside_corridor(x, y, h, phi)
+
+class MinimumVectoringAltitude:
+    def __init__(self, area: geom.Polygon, height: int):
+        """
+        Defines a Minimum Vectoring Altitude area - the lowest altitude
+        an aircraft can safely fly in a specific region.
+        
+        :param area: Polygon defining the horizontal boundaries of the MVA
+        :param height: Minimum safe altitude in feet for this area
+        """
+        self.area = area
+        self.height = height
+        # Convert to array for faster checking with ray tracing
+        self.area_as_list = np.array(list(area.exterior.coords))
+        # Extract bounding box for quicker preliminary position checks
+        self.outer_bounds = area.bounds
+
+class Airspace:
+    def __init__(self, mvas: List[MinimumVectoringAltitude], runway: Runway):
+        """
+        Represents the complete airspace with multiple MVA areas and a runway.
+        
+        :param mvas: List of MinimumVectoringAltitude objects defining safe altitudes
+        :param runway: The runway object for this airspace
+        """
+        self.mvas = mvas
+        self.runway = runway
+
+    def find_mva(self, x, y):
+        """
+        Finds which MVA area contains the given coordinates.
+        
+        :param x: X-coordinate to check
+        :param y: Y-coordinate to check
+        :return: The MinimumVectoringAltitude object containing these coordinates
+        :raises ValueError: If coordinates are outside all defined MVA areas
+        """
+        for mva in self.mvas:
+            bounds = mva.outer_bounds
+            # First do a quick check against the MVA's bounding box
+            # bounds is a tuple with (minx, miny, maxx, maxy)
+            if bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3]:
+                # Then do a precise check using ray tracing
+                if ray_tracing(x, y, mva.area_as_list):
+                    return mva
+        # If no MVA contains the point, it's outside the airspace
+        raise ValueError('Outside of airspace')
+
+    def get_mva_height(self, x, y):
+        """
+        Gets the minimum safe altitude for a given position.
+        
+        :param x: X-coordinate to check
+        :param y: Y-coordinate to check
+        :return: Minimum vectoring altitude in feet
+        :raises ValueError: If coordinates are outside all defined MVA areas
+        """
+        return self.find_mva(x, y).height
+
+    def get_bounding_box(self):
+        """
+        Calculates the overall bounding box of the entire airspace.
+        
+        :return: Tuple with (minx, miny, maxx, maxy)
+        """
+        combined_poly = self.get_outline_polygon()
+        return combined_poly.bounds
+
+    def get_outline_polygon(self):
+        """
+        Combines all MVA areas into a single polygon representing the entire airspace.
+        
+        :return: A shapely Polygon object representing the combined airspace
+        """
+        polys = [mva.area for mva in self.mvas]
+        combined_poly = shapely.ops.unary_union(polys)
+        return combined_poly
+
+class EntryPoint:
+    def __init__(self, x: float, y: float, phi: int, levels: List[int]):
+        """
+        Defines an entry point for aircraft entering the airspace.
+        
+        :param x: X-coordinate of the entry point
+        :param y: Y-coordinate of the entry point
+        :param phi: Initial heading for aircraft at this entry point
+        :param levels: List of possible flight levels (in hundreds of feet) for aircraft at this entry point
+        """
+        self.x = x
+        self.y = y
+        self.phi = phi
+        self.levels = levels
+
+@jit(nopython=True)
+def ray_tracing(x, y, poly):
+    """
+    Uses ray tracing algorithm to determine if a point is inside a polygon.
+    JIT-compiled for performance. CLAUDE TOLD ME THIS, OKAY FINE.
+    
+    :param x: X-coordinate of the point
+    :param y: Y-coordinate of the point
+    :param poly: Array of polygon vertices
+    :return: True if point is inside polygon, False otherwise
+    """
+    n = len(poly)
+    inside = False
+    p2x = 0.0
+    p2y = 0.0
+    xints = 0.0
+    p1x, p1y = poly[0]
+    for i in range(n + 1):
+        p2x, p2y = poly[i % n]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xints = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xints:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+
+    return inside
+
+@jit(nopython=True)
+def relative_angle(angle1, angle2):
+    """
+    Calculates the smallest angle between two headings.
+    JIT-compiled for performance.
+    
+    :param angle1: First angle in degrees
+    :param angle2: Second angle in degrees
+    :return: Relative angle between -180 and 180 degrees
+    """
+    return (angle2 - angle1 + 180) % 360 - 180
+
+@jit(nopython=True)
+def rot_matrix(phi):
+    """
+    Creates a 2D rotation matrix for the given angle.
+    JIT-compiled for performance.
+    
+    :param phi: Angle in degrees
+    :return: 2x2 rotation matrix
+    """
+    phi = math.radians(phi)
+    return np.array([[math.cos(phi), math.sin(phi)], [-math.sin(phi), math.cos(phi)]])

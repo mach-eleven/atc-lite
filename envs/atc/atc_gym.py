@@ -12,6 +12,7 @@ from .themes import ColorScheme
 from . import model
 from . import scenarios
 from . import my_rendering as rendering
+import pyglet
 
 
 # JIT-compiled helper function to calculate a sigmoid-based distance metric
@@ -577,24 +578,29 @@ class AtcGym(gym.Env):
         # Initialize viewer if not already created
         if self.viewer is None:
             self._padding = 10
-            screen_width = 1200
+            
+            # Use a larger fixed size for better visibility
+            screen_width = 1600
+            screen_height = 1200
 
             # Calculate dimensions based on world size
             world_size_x = self._world_x_max - self._world_x_min
             world_size_y = self._world_y_max - self._world_y_min
 
             # Calculate the scaling factor to fit the world to the screen
-            self._scale = screen_width / world_size_x
-            screen_height = int(world_size_y * self._scale)
-
-            # Create the viewer and background
-            self.viewer = rendering.Viewer(screen_width + 2 * self._padding, screen_height + 2 * self._padding)
+            self._scale = min(
+                (screen_width - 2 * self._padding) / world_size_x,
+                (screen_height - 2 * self._padding) / world_size_y
+            )
+            
+            # Create the viewer and background (regular window but larger)
+            self.viewer = rendering.Viewer(screen_width, screen_height)
 
             background = rendering.FilledPolygon([
                 (0, 0), 
-                (0, screen_height + 2 * self._padding),
-                (screen_width + 2 * self._padding, screen_height + 2 * self._padding),
-                (screen_width + 2 * self._padding, 0)
+                (0, screen_height),
+                (screen_width, screen_height),
+                (screen_width, 0)
             ])
             background.set_color(*ColorScheme.background_inactive)
             self.viewer.add_geom(background)
@@ -607,11 +613,12 @@ class AtcGym(gym.Env):
 
         # Render dynamic elements
         self._render_airplane(self._airplane)  # Aircraft
-        self._render_reward()  # Reward information
+        self._render_reward()      # Reward information
+        self._render_aircraft_panel()  # Aircraft parameter panel
 
         # Return the rendered frame
         return self.viewer.render(mode == 'rgb_array')
-
+    
     def _render_reward(self):
         """
         Render reward information on the screen
@@ -713,7 +720,41 @@ class AtcGym(gym.Env):
         ], True)
         poly_line.set_color(*ColorScheme.lines_info)
         self.viewer.add_geom(poly_line)
-
+                
+    def _render_aircraft_panel(self):
+        """
+        Render aircraft parameters as text labels in the corner of the screen
+        """
+        # Position for the labels - bottom right corner with padding
+        x_pos = self.viewer.width - 230  # Right side with margin
+        y_pos = 140  # Bottom with some margin
+        
+        # Create labels for aircraft parameters
+        title = Label("AIRCRAFT PARAMETERS", x_pos, y_pos, bold=True)
+        self.viewer.add_onetime(title)
+        
+        # Get current MVA with error handling
+        try:
+            current_mva = self._airspace.get_mva_height(self._airplane.x, self._airplane.y)
+            height_above_mva = self._airplane.h - current_mva
+        except ValueError:
+            height_above_mva = 0
+        
+        # Create parameter strings
+        params = [
+            f"Position: ({self._airplane.x:.1f}, {self._airplane.y:.1f})",
+            f"Altitude: {self._airplane.h:.0f} ft",
+            f"Heading: {self._airplane.phi:.1f}°",
+            f"Speed: {self._airplane.v:.0f} knots",
+            f"Distance to FAF: {self._d_faf:.1f} nm",
+            f"Height above MVA: {height_above_mva:.0f} ft"
+        ]
+        
+        # Add parameter labels starting from the bottom
+        for i, param in enumerate(params):
+            y = y_pos - 20 * (i + 1)
+            param_label = Label(param, x_pos, y, bold=False)
+            self.viewer.add_onetime(param_label)
     def _render_mvas(self):
         """
         Renders the outlines of the minimum vectoring altitudes onto the screen.

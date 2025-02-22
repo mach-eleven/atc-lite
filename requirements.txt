@@ -1,0 +1,11 @@
+gymnasium[mujoco]
+shimmy
+numba
+shapely
+numpy==2.1.3
+gym
+pyglet
+PyYAML
+stable-baselines3
+optuna
+pytest

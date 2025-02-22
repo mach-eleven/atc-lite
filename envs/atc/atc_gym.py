@@ -580,13 +580,15 @@ class AtcGym(gym.Env):
             self._padding = 10
             
             # Use a larger fixed size for better visibility
-            screen_width = 1600
-            screen_height = 1200
+            screen_width = 2000   # 35
+            screen_height = 1600  # 40
 
             # Calculate dimensions based on world size
             world_size_x = self._world_x_max - self._world_x_min
             world_size_y = self._world_y_max - self._world_y_min
-
+            
+            print(screen_height, screen_width)
+            print(world_size_x, world_size_y)
             # Calculate the scaling factor to fit the world to the screen
             self._scale = min(
                 (screen_width - 2 * self._padding) / world_size_x,
@@ -791,7 +793,7 @@ class AtcGym(gym.Env):
         end_point = (runway_vector[0][0] + runway_to_threshold_vector[0][0], 
                      runway_vector[1][0] + runway_to_threshold_vector[1][0])
         
-        runway_line = rendering.Line(start_point, end_point)
+        runway_line = rendering.Line(start_point, end_point, attrs={"linewidth": 10})
         runway_line.set_color(*ColorScheme.runway)
         self.viewer.add_geom(runway_line)
 

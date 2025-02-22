@@ -53,6 +53,7 @@ class SimpleScenario(Scenario):
         # MVA region 5: Northwest region with 6500ft minimum
         mva_5 = model.MinimumVectoringAltitude(shape.Polygon([(0, 17), (15, 28.7), (15, 40), (0, 32)]), 6500)
         
+
         # Combine all MVAs into a list
         self.mvas = [mva_1, mva_2, mva_3, mva_4, mva_5]
 

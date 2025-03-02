@@ -70,7 +70,7 @@ class SimpleScenario(Scenario):
         
         # Create the airspace object by combining MVAs and runway
         self.airspace = model.Airspace(self.mvas, self.runway)
-        
+
         # Define a single entry point where aircraft enter the simulation
         # Parameters: (x, y, initial heading, list of possible altitudes in 100s of feet)
         # Create multiple random entry points around the edges of the airspace

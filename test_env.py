@@ -21,7 +21,7 @@ def main():
     
     # Create environment with continuous action space and slower simulation speed
     sim_params = model.SimParameters(0.5, discrete_action_space=False)
-    env = AtcGym(airplane_count=10, sim_parameters=sim_params)
+    env = AtcGym(airplane_count=8, sim_parameters=sim_params)
     
     # Reset the environment
     state, info = env.reset()

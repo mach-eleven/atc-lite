@@ -4,6 +4,7 @@ from typing import List  # For type hinting
 
 # Import the model module which contains class definitions for airspace components
 from . import model
+import random
 
 class Scenario:
     """
@@ -72,9 +73,33 @@ class SimpleScenario(Scenario):
         
         # Define a single entry point where aircraft enter the simulation
         # Parameters: (x, y, initial heading, list of possible altitudes in 100s of feet)
-        self.entrypoints = [
-            model.EntryPoint(5, 35, 90, [150]),  # Northwest entry at 15,000 feet, heading east
-            model.EntryPoint(5, 5, 270, [150]),  # Southwest entry at 15,000 feet, heading west
-            model.EntryPoint(35, 5, 180, [150]),  # Southeast entry at 15,000 feet, heading west
-            model.EntryPoint(35, 35, 270, [150])  # Northeast entry at 15,000 feet, heading west
-        ]
+        # Create multiple random entry points around the edges of the airspace
+        self.entrypoints = []
+        
+        # Number of entry points to create
+        num_points = 20
+        
+        for _ in range(num_points):
+            # Randomly choose which edge to place the entry point
+            edge = random.randint(0, 3)
+            
+            if edge == 0:  # Top edge
+                x = random.uniform(0, 35)
+                y = 40
+                heading = random.choice([180, 225, 270])
+            elif edge == 1:  # Right edge
+                x = 35
+                y = random.uniform(0, 40)
+                heading = random.choice([180, 225, 270])
+            elif edge == 2:  # Bottom edge
+                x = random.uniform(0, 35)
+                y = 0
+                heading = random.choice([0, 45, 90])
+            else:  # Left edge
+                x = 0
+                y = random.uniform(0, 40)
+                heading = random.choice([45, 90, 135])
+            
+            # Create entry point with random altitude between 100-200 hundred feet
+            altitude = random.randint(100, 200)
+            self.entrypoints.append(model.EntryPoint(x, y, heading, [altitude]))

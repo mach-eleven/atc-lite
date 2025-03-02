@@ -21,7 +21,7 @@ def main():
     
     # Create environment with continuous action space and slower simulation speed
     sim_params = model.SimParameters(0.5, discrete_action_space=False)
-    env = AtcGym(sim_parameters=sim_params)
+    env = AtcGym(airplane_count=3, sim_parameters=sim_params)
     
     # Reset the environment
     state, info = env.reset()
@@ -33,15 +33,17 @@ def main():
     for episode in range(num_episodes):
         print(f"\nEpisode {episode + 1}/{num_episodes}")
         state, info = env.reset()
+
+        airplane_count = len(env._airplanes)
         
         total_reward = 0
         for step in range(max_steps_per_episode):
             # Instead of purely random actions, let's use actions that tend to keep the plane 
             # moving toward the center of the airspace
-            action = np.array([0.0, 0.0, 0.0])  # Default action - maintain course
+            action = np.array([0.0, 0.0, 0.0]*airplane_count)  # Default action - maintain course
             
             # Add small random perturbations
-            action += np.random.uniform(-0.2, 0.2, 3)
+            action += np.random.uniform(-0.2, 0.2, size=action.shape)
             
             # Step the environment
             state, reward, done, truncated, info = env.step(action)
@@ -53,7 +55,8 @@ def main():
             
             if step % 10 == 0:
                 print(f"Step {step}, Reward: {reward:.2f}, Total: {total_reward:.2f}")
-                print(f"Aircraft position: ({env._airplane.x:.1f}, {env._airplane.y:.1f}), Alt: {env._airplane.h:.0f}, Heading: {env._airplane.phi:.0f}°")
+                for i, airplane in enumerate(env._airplanes):
+                    print(f"Aircraft {i}: Alt: {airplane.h:.0f}, Heading: {airplane.phi:.0f}°, Speed: {airplane.v:.1f}, Position: ({airplane.x:.1f}, {airplane.y:.1f})")
             
             if done:
                 if reward > 1000:

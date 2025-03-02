@@ -73,5 +73,8 @@ class SimpleScenario(Scenario):
         # Define a single entry point where aircraft enter the simulation
         # Parameters: (x, y, initial heading, list of possible altitudes in 100s of feet)
         self.entrypoints = [
-            model.EntryPoint(5, 35, 90, [150])  # Northwest entry at 15,000 feet, heading east
+            model.EntryPoint(5, 35, 90, [150]),  # Northwest entry at 15,000 feet, heading east
+            model.EntryPoint(5, 5, 270, [150]),  # Southwest entry at 15,000 feet, heading west
+            model.EntryPoint(35, 5, 180, [150]),  # Southeast entry at 15,000 feet, heading west
+            model.EntryPoint(35, 35, 270, [150])  # Northeast entry at 15,000 feet, heading west
         ]

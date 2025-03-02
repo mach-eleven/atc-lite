@@ -14,6 +14,8 @@ from . import scenarios
 from . import my_rendering as rendering
 import pyglet
 
+# TODO: Airplane should have d_faf, etc. stored in it not the array system we have now
+
 
 # JIT-compiled helper function to calculate a sigmoid-based distance metric
 # This creates a smooth transition between 0 and 1 as d approaches d_max
@@ -46,7 +48,7 @@ class AtcGym(gym.Env):
         "render_fps": 50
     }
 
-    def __init__(self, sim_parameters=model.SimParameters(1), scenario=None):
+    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None):
         """
         Initialize the ATC gym environment
         
@@ -54,6 +56,9 @@ class AtcGym(gym.Env):
             sim_parameters: Simulation parameters like timestep size
             scenario: The airspace scenario to use (runways, MVAs, etc.)
         """
+
+        self._airplane_count = airplane_count
+
         self.render_mode = 'rgb_array'
         
         # Use a default scenario if none provided
@@ -101,68 +106,78 @@ class AtcGym(gym.Env):
         self.viewer = None
 
         # Action space normalization parameters
-        self.normalization_action_offset = np.array([self._airplane.v_min, 0, 0])
+        self.normalization_action_offset = np.array([
+            *[airplane.v_min for airplane in self._airplanes], 
+            *[0 for _ in self._airplanes], 
+            *[0 for _ in self._airplanes]
+        ])
 
         # Configure action space (discrete or continuous)
         if sim_parameters.discrete_action_space:
             # For discrete actions, define the scaling factors
-            self.normalization_action_factor = np.array([10, 100, 1])
+            self.normalization_action_factor = np.array([10, 100, 1]*len(self._airplanes))
 
             # action space structure: v (speed), h (altitude), phi (heading)
             self.action_space = gym.spaces.MultiDiscrete([
-                int((self._airplane.v_max - self._airplane.v_min) / 10),  # Speed buckets
-                int(self._airplane.h_max / 100),                          # Altitude in hundreds of feet
-                360                                                        # Heading in degrees
+                *[int((airplane.v_max - airplane.v_min) / 10) for airplane in self._airplanes],  # Speed buckets
+                *[int(airplane.h_max / 100) for airplane in self._airplanes],                          # Altitude in hundreds of feet
+                *[360 for _ in self._airplanes]                                                       # Heading in degrees
             ])
         else:
             # For continuous actions, define the scaling factors based on aircraft limits
+
             self.normalization_action_factor = np.array([
-                self._airplane.v_max - self._airplane.v_min,  # Speed range
-                self._airplane.h_max,                         # Altitude range
-                360                                           # Heading range (degrees)
+                *[airplane.v_max - airplane.v_min for airplane in self._airplanes], # Speed range
+                *[airplane.h_max for airplane in self._airplanes],                  # Altitude range
+                *[360 for _ in self._airplanes]                                      # Heading range (degrees)
             ])
 
             # Continuous action space between -1 and 1 for each dimension
             self.action_space = gym.spaces.Box(
-                low=np.array([-1, -1, -1]),
-                high=np.array([1, 1, 1])
+                low=np.array([-1, -1, -1]*len(self._airplanes)),
+                high=np.array([1, 1, 1]*len(self._airplanes))
             )
 
         # Thresholds for what counts as a significant action change
         self._action_discriminator = [5, 50, 0.5]  # For speed, altitude, heading
-        self.last_action = [0, 0, 0]
+        self.last_action = [0, 0, 0]*len(self._airplanes)
 
         # Define the observation space normalization parameters
         self.normalization_state_min = np.array([
-            self._world_x_min,          # Minimum x position
-            self._world_y_min,          # Minimum y position
-            0,                          # Minimum altitude
-            0,                          # Minimum heading
-            self._airplane.v_min,       # Minimum speed
-            0,                          # Minimum height above MVA
-            0,                          # Minimum on-glidepath altitude
-            0,                          # Minimum distance to FAF
-            -180,                       # Minimum relative angle to FAF
-            -180                        # Minimum relative angle to runway
-        ], dtype=np.float32)
-        
-        self.normalization_state_max = np.array([
-            world_x_length,                          # x position range in nautical miles
-            world_y_length,                          # y position range in nautical miles
-            self._airplane.h_max,                    # maximum altitude range in feet
-            360,                                     # heading range in degrees
-            self._airplane.v_max - self._airplane.v_min,  # speed range in knots
-            self._airplane.h_max,                    # maximum height above MVA in feet
-            self._airplane.h_max,                    # maximum on glidepath altitude in feet
-            self._world_max_distance,                # maximum distance to FAF in nautical miles
-            360,                                     # maximum relative angle to FAF in degrees
-            360                                      # maximum relative angle to runway in degrees
+            *[self._world_x_min for _ in self._airplanes],          # Minimum x position
+            *[self._world_y_min for _ in self._airplanes],          # Minimum y position
+            *[0 for _ in self._airplanes],                          # Minimum altitude
+            *[0 for _ in self._airplanes],                          # Minimum heading
+            *[airplane.v_min for airplane in self._airplanes],       # Minimum speed
+            *[0 for _ in self._airplanes],                          # Minimum height above MVA
+            *[0 for _ in self._on_gp_altitudes],                          # Minimum on-glidepath altitude
+            *[0 for _ in self._d_fafs],                          # Minimum distance to FAF
+            *[-180 for _ in self._phi_rel_fafs],                       # Minimum relative angle to FAF
+            *[-180 for _ in self._phi_rel_runways]                        # Minimum relative angle to runway
         ], dtype=np.float32)
 
+
+        self.normalization_state_max = np.array([
+            *[world_x_length for _ in self._airplanes],          # x position range in nautical miles
+            *[world_y_length for _ in self._airplanes],          # y position range in nautical miles
+            *[airplane.h_max for airplane in self._airplanes],   # maximum altitude range in feet
+            *[360 for _ in self._airplanes],                     # heading range in degrees
+            *[airplane.v_max - airplane.v_min for airplane in self._airplanes],       # speed range in knots
+            *[airplane.h_max for airplane in self._airplanes],                        # maximum height above MVA in feet
+            *[airplane.h_max for airplane in self._airplanes],                  # maximum on glidepath altitude in feet
+            *[self._world_max_distance for _ in self._d_fafs],                        # maximum distance to FAF in nautical miles
+            *[360 for _ in self._phi_rel_fafs],                   # maximum relative angle to FAF in degrees
+            *[360 for _ in self._phi_rel_runways]                 # maximum relative angle to runway in degrees
+        ], dtype=np.float32)
+        
         # Define the observation space: x, y, h, phi, v, h-mva, on_gp, d_faf, phi_rel_faf, phi_rel_runway
         # All values normalized to [-1, 1]
-        self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(10,))
+        self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(len(self.normalization_state_min),))
         self.reward_range = (-3000.0, 23000.0)  # Define the min/max possible rewards
+
+        print("Number of airplanes: ", len(self._airplanes))
+        print("Observation space: ", len(self.normalization_state_min))
+        print("Action space: ", len(self.normalization_action_offset))
 
     def seed(self, seed=None):
         """
@@ -178,12 +193,12 @@ class AtcGym(gym.Env):
         random.seed(seed)
         return [seed]
 
-    def step(self, action):
+    def step(self, action_array):
         """
         Execute one step in the environment
         
         Args:
-            action: Action vector with [speed, altitude, heading] commands
+            action_array: Action vector with [speed, altitude, heading]*airplane commands
             
         Returns:
             (state, reward, done, truncated, info) tuple
@@ -192,38 +207,81 @@ class AtcGym(gym.Env):
         self.done = False
         # Small negative reward per timestep to encourage efficiency
         reward = -0.05 * self._sim_parameters.timestep
-        
+
+        dones = [False] * len(self._airplanes)
         # Apply each action component and accumulate rewards
-        reward += self._action_with_reward(self._airplane.action_v, action, 0)    # Speed
-        reward += self._action_with_reward(self._airplane.action_h, action, 1)    # Altitude
-        reward += self._action_with_reward(self._airplane.action_phi, action, 2)  # Heading
+        c = 0
+        for airplane in self._airplanes:
+            action = action_array[c * 3: (c + 1) * 3] # for airplane 0: 0-2, for airplane 1: 3-5
+            last_action = self.last_action[c * 3: (c + 1) * 3]
 
-        # Update the airplane position based on its current state
-        self._airplane.step()
+            rewa, updated_last_action = self._action_with_reward(airplane.action_v, action, last_action, 0)    # Speed
+            reward += rewa
+            self.last_action[(c * 3) + 0] = updated_last_action[0]
+            self.last_action[(c * 3) + 1] = updated_last_action[1]
+            self.last_action[(c * 3) + 2] = updated_last_action[2]
+            rewa, updated_last_action = self._action_with_reward(airplane.action_h, action, last_action, 1)    # Altitude
+            reward += rewa
+            self.last_action[(c * 3) + 0] = updated_last_action[0]
+            self.last_action[(c * 3) + 1] = updated_last_action[1]
+            self.last_action[(c * 3) + 2] = updated_last_action[2]
+            rewa, updated_last_action = self._action_with_reward(airplane.action_phi, action, last_action, 2)  # Heading
+            reward += rewa
+            self.last_action[(c * 3) + 0] = updated_last_action[0]
+            self.last_action[(c * 3) + 1] = updated_last_action[1]
+            self.last_action[(c * 3) + 2] = updated_last_action[2]
 
-        # Check if airplane is above the MVA (minimum vectoring altitude)
-        try:
-            mva = self._airspace.get_mva_height(self._airplane.x, self._airplane.y)
 
-            if self._airplane.h < mva:
-                # Airplane has descended below minimum safe altitude - failure
+            # Update the airplane position based on its current state
+            airplane.step()
+
+            # Check if airplane is above the MVA (minimum vectoring altitude)
+            try:
+                mva = self._airspace.get_mva_height(airplane.x, airplane.y)
+
+                if airplane.h < mva:
+                    # Airplane has descended below minimum safe altitude - failure
+                    self._win_buffer.append(0)
+                    reward = -200  # Large negative reward
+                    dones[c] = True
+            except ValueError:
+                # Airplane has left the defined airspace - failure
                 self._win_buffer.append(0)
-                reward = -200  # Large negative reward
-                self.done = True
-        except ValueError:
-            # Airplane has left the defined airspace - failure
-            self._win_buffer.append(0)
-            self.done = True
-            reward = -50  # Negative reward
-            mva = 0  # Dummy MVA value for the final state
+                dones[c] = True
+                reward = -50  # Negative reward
+                mva = 0  # Dummy MVA value for the final state
 
-        # Check if airplane has successfully reached the final approach corridor
-        if self._runway.inside_corridor(self._airplane.x, self._airplane.y, self._airplane.h, self._airplane.phi):
-            # GAME WON! Aircraft successfully guided to final approach
-            self._win_buffer.append(1)
-            # Large positive reward plus bonus for finishing quickly
-            reward = 10000 + max((self.timestep_limit - self.timesteps) * 5, 0)
-            self.done = True
+            # Check if airplane has successfully reached the final approach corridor
+            if self._runway.inside_corridor(airplane.x, airplane.y, airplane.h, airplane.phi):
+                # GAME WON! Aircraft successfully guided to final approach
+                self._win_buffer.append(1)
+                # Large positive reward plus bonus for finishing quickly
+                reward = 10000 + max((self.timestep_limit - self.timesteps) * 5, 0)
+                dones[c] = True
+
+            # Apply additional reward shaping to guide learning
+            if self._sim_parameters.reward_shaping:
+                # Reward for being in a good approach position
+                app_position_reward = self._reward_approach_position(
+                    self._d_fafs[c], self._runway.phi_to_runway,
+                    self._phi_rel_fafs[c], self._world_max_distance
+                )
+                reward += app_position_reward
+                
+                # Reward for correct approach angle
+                reward += self._reward_approach_angle(
+                    self._runway.phi_to_runway,
+                    self._phi_rel_fafs[c], airplane.phi, app_position_reward
+                )
+                
+                # Reward for being on the correct glideslope
+                reward += self._reward_glideslope(
+                    airplane.h, self._on_gp_altitudes[c], app_position_reward
+                )
+
+            c += 1
+
+        self.done = all(dones)
 
         # Check if time limit exceeded
         if self.timesteps > self.timestep_limit:
@@ -233,26 +291,6 @@ class AtcGym(gym.Env):
         # Get the current observation
         state = self._get_obs(mva)
         self.state = state
-
-        # Apply additional reward shaping to guide learning
-        if self._sim_parameters.reward_shaping:
-            # Reward for being in a good approach position
-            app_position_reward = self._reward_approach_position(
-                self._d_faf, self._runway.phi_to_runway,
-                self._phi_rel_faf, self._world_max_distance
-            )
-            reward += app_position_reward
-            
-            # Reward for correct approach angle
-            reward += self._reward_approach_angle(
-                self._runway.phi_to_runway,
-                self._phi_rel_faf, self._airplane.phi, app_position_reward
-            )
-            
-            # Reward for being on the correct glideslope
-            reward += self._reward_glideslope(
-                self._airplane.h, self._on_gp_altitude, app_position_reward
-            )
 
         # Normalize state if configured to do so
         if self._sim_parameters.normalize_state:
@@ -368,34 +406,51 @@ class AtcGym(gym.Env):
         Returns:
             Observation state vector
         """
-        # Calculate vector from aircraft to FAF
-        to_faf_x = self._runway.corridor.faf[0][0] - self._airplane.x
-        to_faf_y = self._runway.corridor.faf[1][0] - self._airplane.y
+
+        phi_rels = []
+        d_fafs = []
+        on_gp_altitudes = []
+        phi_rel_runways = []
+
+        for airplane in self._airplanes:
+
+            # Calculate vector from aircraft to FAF
+            to_faf_x = self._runway.corridor.faf[0][0] - airplane.x
+            to_faf_y = self._runway.corridor.faf[1][0] - airplane.y
+            
+            # Calculate relative angle to runway heading
+            phi_rel_runway = self._calculate_phi_rel_runway(self._runway.phi_to_runway, airplane.phi)
+            # Calculate distance to FAF
+            d_faf = self.euclidean_dist(to_faf_x, to_faf_y)
+            # Calculate angle to FAF
+            phi_rel_faf = self._calculate_phi_rel_faf(to_faf_x, to_faf_y)
+
+            # Calculate the target altitude for current position on glidepath
+            on_gp_alt = self._calculate_on_gp_altitude(d_faf, self._faf_mva)
+
+            d_fafs.append(d_faf)
+            phi_rel_runways.append(phi_rel_runway)
+            phi_rels.append(phi_rel_faf)
+            on_gp_altitudes.append(on_gp_alt)
+
+        self._d_fafs = d_fafs
+        self._phi_rel_fafs = phi_rels
+        self._phi_rel_runways = phi_rel_runways
+        self._on_gp_altitudes = on_gp_altitudes
         
-        # Calculate relative angle to runway heading
-        phi_rel_runway = self._calculate_phi_rel_runway(self._runway.phi_to_runway, self._airplane.phi)
-        
-        # Calculate distance to FAF
-        self._d_faf = self.euclidean_dist(to_faf_x, to_faf_y)
-        
-        # Calculate angle to FAF
-        self._phi_rel_faf = self._calculate_phi_rel_faf(to_faf_x, to_faf_y)
-        
-        # Calculate the target altitude for current position on glidepath
-        self._on_gp_altitude = self._calculate_on_gp_altitude(self._d_faf, self._faf_mva)
 
         # Create the full observation state vector
         state = np.array([
-            self._airplane.x,              # Aircraft x position
-            self._airplane.y,              # Aircraft y position
-            self._airplane.h,              # Aircraft altitude
-            self._airplane.phi,            # Aircraft heading
-            self._airplane.v,              # Aircraft speed
-            self._airplane.h - mva,        # Height above minimum safe altitude
-            self._on_gp_altitude,          # Target glidepath altitude
-            self._d_faf,                   # Distance to final approach fix
-            self._phi_rel_faf,             # Relative angle to final approach fix
-            phi_rel_runway                 # Relative angle to runway heading
+            *[airplane.x for airplane in self._airplanes],  # Aircraft x position
+            *[airplane.y for airplane in self._airplanes],  # Aircraft y position
+            *[airplane.h for airplane in self._airplanes],  # Aircraft altitude
+            *[airplane.phi for airplane in self._airplanes],  # Aircraft heading
+            *[airplane.v for airplane in self._airplanes],  # Aircraft speed
+            *[airplane.h - mva for airplane in self._airplanes],  # Height above minimum safe altitude
+            *self._on_gp_altitudes,
+            *self._d_fafs,                       # Distance to final approach fix
+            *self._phi_rel_fafs,             # Relative angle to final approach fix
+            *self._phi_rel_runways,                 # Relative angle to runway heading
         ], dtype=np.float32)
         
         return state
@@ -457,13 +512,14 @@ class AtcGym(gym.Env):
         """
         return np.hypot(to_faf_x, to_faf_y)
 
-    def _action_with_reward(self, func, action, index):
+    def _action_with_reward(self, func, action, last_action, index):
         """
         Apply an action component and calculate the resulting reward
         
         Args:
             func: Action application function
             action: Action vector
+            last_action: Last action vector
             index: Index of the action component to apply
             
         Returns:
@@ -477,15 +533,16 @@ class AtcGym(gym.Env):
             # Apply the action to the aircraft
             func(action_to_take)
             # Count significant changes as distinct actions
-            if not abs(action_to_take - self.last_action[index]) < self._action_discriminator[index]:
+            if not abs(action_to_take - last_action[index]) < self._action_discriminator[index]:
                 self.actions_taken += 1
-            self.last_action[index] = action_to_take
+            
+            last_action[index] = action_to_take
         except ValueError:
             # Invalid action (outside permissible range)
             print(f"Warning invalid action: {action_to_take} for index: {index}")
             reward -= 1.0  # Penalty for invalid action
 
-        return reward
+        return reward, last_action
 
     def _denormalized_action(self, action, index):
         """
@@ -523,28 +580,34 @@ class AtcGym(gym.Env):
         """
         self.done = False
 
-        # Choose a random entry point from the scenario
-        entry_point = random.choice(self._scenario.entrypoints)
-        
         # Calculate the center of the airspace for a safer starting position
         center_x = (self._world_x_min + self._world_x_max) / 2
         center_y = (self._world_y_min + self._world_y_max) / 2
         
-        # Place the airplane at a position 25% of the way from the center to the entry point
-        # This ensures it starts well within the airspace
-        x = center_x + 0.25 * (entry_point.x - center_x)
-        y = center_y + 0.25 * (entry_point.y - center_y)
-        
-        # Create a new airplane with a moderate initial altitude
-        self._airplane = model.Airplane(
-            self._sim_parameters, 
-            "FLT01",                                    # Flight identifier
-            x, y,                                       # Position
-            random.choice(entry_point.levels) * 100,    # Altitude
-            entry_point.phi,                            # Heading 
-            250                                         # Initial speed
-        )
+        self._airplanes = []
 
+        for i in range(self._airplane_count):
+            
+            # Choose a random entry point from the scenario
+            entry_point = random.choice(self._scenario.entrypoints)
+            
+            # Place the airplane at a position 25% of the way from the center to the entry point
+            # This ensures it starts well within the airspace
+            x = center_x + 0.25 * (entry_point.x - center_x)
+            y = center_y + 0.25 * (entry_point.y - center_y)
+            
+            # Create new airplane instances for the simulation
+            self._airplanes.append(
+                model.Airplane(
+                    self._sim_parameters,
+                    f"FLT{i+1:03}",                                    # Flight identifier
+                    x, y,                                       # Position
+                    random.choice(entry_point.levels) * 100,    # Altitude
+                    entry_point.phi,                            # Heading
+                    250                                         # Initial speed
+                )
+            )
+              
         # Reset state and tracking variables
         self.state = self._get_obs(0)
         self.total_reward = 0
@@ -614,9 +677,10 @@ class AtcGym(gym.Env):
             self._render_approach()  # Approach path
 
         # Render dynamic elements
-        self._render_airplane(self._airplane)  # Aircraft
+        for airplane in self._airplanes:
+            self._render_airplane(airplane) # Aircraft symbols
+        self._render_all_aircraft_info_panel(self._airplanes) # Aircraft information panel
         self._render_reward()      # Reward information
-        self._render_aircraft_panel()  # Aircraft parameter panel
 
         # Return the rendered frame
         return self.viewer.render(mode == 'rgb_array')
@@ -723,40 +787,46 @@ class AtcGym(gym.Env):
         poly_line.set_color(*ColorScheme.lines_info)
         self.viewer.add_geom(poly_line)
                 
-    def _render_aircraft_panel(self):
+    def _render_all_aircraft_info_panel(self, airplanes: list[model.Airplane]):
         """
         Render aircraft parameters as text labels in the corner of the screen
         """
         # Position for the labels - bottom right corner with padding
         x_pos = self.viewer.width - 230  # Right side with margin
-        y_pos = 140  # Bottom with some margin
-        
+        y_pos = self.viewer.height - 10  # Top side with margin
+
         # Create labels for aircraft parameters
         title = Label("AIRCRAFT PARAMETERS", x_pos, y_pos, bold=True)
         self.viewer.add_onetime(title)
         
-        # Get current MVA with error handling
-        try:
-            current_mva = self._airspace.get_mva_height(self._airplane.x, self._airplane.y)
-            height_above_mva = self._airplane.h - current_mva
-        except ValueError:
-            height_above_mva = 0
+        for airplane_index, airplane in enumerate(airplanes):
+            
+            # Get current MVA with error handling
+            try:
+                current_mva = self._airspace.get_mva_height(airplane.x, airplane.y)
+                height_above_mva = airplane.h - current_mva
+            except ValueError:
+                height_above_mva = 0
+            
+            # Create parameter strings
+            params = [
+                f"Flight: {airplane.name}",
+                f"Position: ({airplane.x:.1f}, {airplane.y:.1f})",
+                f"Altitude: {airplane.h:.0f} ft",
+                f"Heading: {airplane.phi:.1f}°",
+                f"Speed: {airplane.v:.0f} knots",
+                f"Distance to FAF: {self._d_fafs[airplane_index]:.1f} nm",
+                f"Height above MVA: {height_above_mva:.0f} ft"
+            ]
+            
+            # Add parameter labels starting from the bottom
+            for i, param in enumerate(params):
+                y = y_pos - 20 * (i + 1)
+                param_label = Label(param, x_pos, y, bold=False)
+                self.viewer.add_onetime(param_label)
+
+            y_pos -= 160  # Move up for next aircraft
         
-        # Create parameter strings
-        params = [
-            f"Position: ({self._airplane.x:.1f}, {self._airplane.y:.1f})",
-            f"Altitude: {self._airplane.h:.0f} ft",
-            f"Heading: {self._airplane.phi:.1f}°",
-            f"Speed: {self._airplane.v:.0f} knots",
-            f"Distance to FAF: {self._d_faf:.1f} nm",
-            f"Height above MVA: {height_above_mva:.0f} ft"
-        ]
-        
-        # Add parameter labels starting from the bottom
-        for i, param in enumerate(params):
-            y = y_pos - 20 * (i + 1)
-            param_label = Label(param, x_pos, y, bold=False)
-            self.viewer.add_onetime(param_label)
     def _render_mvas(self):
         """
         Renders the outlines of the minimum vectoring altitudes onto the screen.

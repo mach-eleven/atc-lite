@@ -703,7 +703,7 @@ class EntryPoint:
 def ray_tracing(x, y, poly):
     """
     Uses ray tracing algorithm to determine if a point is inside a polygon.
-    JIT-compiled for performance. CLAUDE TOLD ME THIS, OKAY FINE.
+    JIT-compiled for performance. CLAUDE TOLD ME THIS, OKAY FINE. (lol - shivangi)
     
     :param x: X-coordinate of the point
     :param y: Y-coordinate of the point

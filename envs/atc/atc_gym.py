@@ -484,6 +484,7 @@ class AtcGym(gym.Env):
         return state
 
     @staticmethod
+    # have to remove this
     def _calculate_on_gp_altitude(d_faf, faf_mva):
         """
         Calculate the target altitude on the 3-degree glidepath
@@ -681,6 +682,17 @@ class AtcGym(gym.Env):
         corner_bottom_left = np.dot(model.rot_matrix(225), corner_vector) + vector
         corner_top_left = np.dot(model.rot_matrix(315), corner_vector) + vector
 
+        # also add an arrow to show the heading
+        arrow_vector = np.array([[0], [render_size * 1.5]])
+        arrow_tip = np.dot(model.rot_matrix(0), arrow_vector) + vector
+        arrow_end = np.dot(model.rot_matrix(airplane.phi), arrow_vector) + vector
+        arrow = rendering.Line(
+            (arrow_tip[0][0], arrow_tip[1][0]),
+            (arrow_end[0][0], arrow_end[1][0])
+        )
+        arrow.set_color(*ColorScheme.airplane)
+        self.viewer.add_onetime(arrow)
+        
         # Create the airplane symbol
         symbol = rendering.PolyLine([
             (corner_top_right[0][0], corner_top_right[1][0]),

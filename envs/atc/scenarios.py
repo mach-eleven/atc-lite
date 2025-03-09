@@ -20,6 +20,7 @@ class Scenario:
     mvas: List[model.MinimumVectoringAltitude]  # List of MVA regions with minimum safe altitudes
     airspace: model.Airspace  # The complete airspace combining all elements
     entrypoints: List[model.EntryPoint]  # Points where aircraft can enter the simulation
+    wind: model.Wind  # Wind conditions in the airspace
 
 class SimpleScenario(Scenario):
     """
@@ -71,6 +72,8 @@ class SimpleScenario(Scenario):
         # Create the airspace object by combining MVAs and runway
         self.airspace = model.Airspace(self.mvas, self.runway)
 
+        # Create the wind object 
+        self.wind = model.Wind((35, 0, 0, 40))
         # Define a single entry point where aircraft enter the simulation
         # Parameters: (x, y, initial heading, list of possible altitudes in 100s of feet)
         # Create multiple random entry points around the edges of the airspace
@@ -82,7 +85,8 @@ class SimpleScenario(Scenario):
         for _ in range(num_points):
             # Randomly choose which edge to place the entry point
             edge = random.randint(0, 3)
-            
+
+            # this is not random entry point!!!!! - disappointing
             if edge == 0:  # Top edge
                 x = random.uniform(0, 35)
                 y = 40

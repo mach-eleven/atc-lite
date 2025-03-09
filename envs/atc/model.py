@@ -11,6 +11,45 @@ from numba import jit  # Numba provides just-in-time compilation for faster exec
 # Conversion constant: 1 nautical mile = 6076 feet. I know it's distance now, fkn Pranjal.
 nautical_miles_to_feet = 6076  # ft/nm
 
+# Function to get wind speed at a given location and altitude
+def get_wind_speed(x, y, h):
+    """
+    Get wind speed at a given location and altitude.
+    
+    Args:
+        x, y: Position in nautical miles
+        h: Altitude in feet
+        
+    Returns:
+        Tuple (wind_x, wind_y) in knots
+    """
+    # Base wind from west (270°) with slight randomization
+    base_wind_speed = 10 + random.uniform(-5, 5)  # Base wind in knots
+    
+    # Wind increases with altitude (logarithmic increase)
+    altitude_factor = 1.0 + 0.2 * math.log(max(1, h / 1000))
+    
+    # Positional variations (create some gradient across the airspace)
+    x_variation = math.sin(x * 0.1) * 5
+    y_variation = math.cos(y * 0.1) * 5
+    
+    # Add some randomization
+    x_variation += random.uniform(-2, 2)
+    y_variation += random.uniform(-2, 2)
+    
+    # Wind from west (270°) - using meteorological convention
+    wind_speed = base_wind_speed * altitude_factor + x_variation + y_variation
+    wind_direction = 270 + y_variation  # Slight directional shift based on position
+    
+    # Convert to vector components (wind from direction)
+    wind_direction_rad = math.radians(wind_direction)
+    wind_x = -wind_speed * math.sin(wind_direction_rad)  # Negative because wind from this direction
+    wind_y = -wind_speed * math.cos(wind_direction_rad)
+    
+    print(f"Wind at ({x:.1f}, {y:.1f}, {h:.0f}ft): {wind_speed:.1f} knots from {wind_direction:.1f}°")
+    
+    return (wind_x, wind_y)
+
 class Airplane:
     def __init__(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
         """
@@ -60,7 +99,29 @@ class Airplane:
         # Stores previous positions for tracking/visualization
         self.position_history = []
         # Random identifier for this airplane instance
-        self.id = random.randint(0, 32767) # i don't understand his rationale behind that number 32767 
+        self.id = random.randint(0, 32767)
+        
+        # NEW: Add fuel and mass properties
+        self.empty_mass = 40000  # kg (aircraft without fuel)
+        self.fuel_mass = 10000   # kg (initial fuel)
+        self.max_fuel = 10000    # kg (fuel capacity)
+        
+        # Fuel consumption rates (kg/s)
+        self.cruise_consumption = 0.5   # Base fuel flow at cruise
+        self.fuel_remaining_pct = 100.0  # Percentage of fuel remaining
+        
+        # Wind components (will be updated from function)
+        self.wind_x = 0.0  # Wind x-component in knots
+        self.wind_y = 0.0  # Wind y-component in knots
+        self.headwind = 0.0  # Headwind component
+        
+        # Track vs heading (with wind)
+        self.ground_speed = v  # Initially same as airspeed
+        self.track = phi      # Initially same as heading
+        
+        # For tracking vertical speed
+        self.prev_h = h
+        self.vertical_speed = 0  # feet per minute
 
     def above_mva(self, mvas):
         """
@@ -96,7 +157,7 @@ class Airplane:
         delta_v = action_v - self.v
         
         # Limit acceleration to aircraft performance constraints
-        delta_v = min(delta_v, self.a_max * self.sim_parameters.timestep) #constrained by max and min acceleration specified above.
+        delta_v = min(delta_v, self.a_max * self.sim_parameters.timestep)
         
         # Limit deceleration to aircraft performance constraints
         delta_v = max(delta_v, self.a_min * self.sim_parameters.timestep)
@@ -124,7 +185,7 @@ class Airplane:
         delta_h = action_h - self.h
         
         # Limit climb rate to aircraft performance constraints
-        delta_h = min(delta_h, self.h_dot_max * self.sim_parameters.timestep) # same shit as above
+        delta_h = min(delta_h, self.h_dot_max * self.sim_parameters.timestep)
         
         # Limit descent rate to aircraft performance constraints
         delta_h = max(delta_h, self.h_dot_min * self.sim_parameters.timestep)
@@ -145,7 +206,7 @@ class Airplane:
         delta_phi = relative_angle(self.phi, action_phi)
         
         # Limit turn rate to aircraft performance constraints (right turn)
-        delta_phi = min(delta_phi, self.phi_dot_max * self.sim_parameters.timestep) # literally done same shit everywhere, stop this madman
+        delta_phi = min(delta_phi, self.phi_dot_max * self.sim_parameters.timestep)
         
         # Limit turn rate to aircraft performance constraints (left turn)
         delta_phi = max(delta_phi, self.phi_dot_min * self.sim_parameters.timestep)
@@ -153,24 +214,114 @@ class Airplane:
         # Apply the constrained heading change, keeping within 0-360 range
         self.phi = (self.phi + delta_phi) % 360
 
+    def update_wind(self):
+        """
+        Update wind components based on current position.
+        """
+        # Call the wind function
+        wind_vector = get_wind_speed(self.x, self.y, self.h)
+        self.wind_x = wind_vector[0]
+        self.wind_y = wind_vector[1]
+        
+        # Recalculate ground speed and track
+        self._calculate_ground_vector()
+
+    def _calculate_ground_vector(self):
+        """Calculate ground speed and track based on airspeed, heading, and wind."""
+        # Convert heading to radians
+        heading_rad = math.radians(self.phi)
+        
+        # Calculate true airspeed components
+        air_x = self.v * math.sin(heading_rad)
+        air_y = self.v * math.cos(heading_rad)
+        
+        # Calculate ground vector by adding wind components
+        ground_x = air_x + self.wind_x
+        ground_y = air_y + self.wind_y
+        
+        # Calculate new ground speed
+        self.ground_speed = math.sqrt(ground_x**2 + ground_y**2)
+        
+        # Calculate new track
+        self.track = (math.degrees(math.atan2(ground_x, ground_y)) + 360) % 360
+        
+        # Calculate headwind component for fuel calculations
+        self.headwind = -self.wind_x * math.sin(heading_rad) - self.wind_y * math.cos(heading_rad)
+        
+        print(f"{self.name}: Airspeed={self.v:.1f}kt, Heading={self.phi:.1f}°, Ground Speed={self.ground_speed:.1f}kt, Track={self.track:.1f}°, Headwind={self.headwind:.1f}kt")
+
+    def update_fuel(self):
+        """Update fuel quantity based on consumption."""
+        # Calculate vertical speed in feet per minute
+        self.vertical_speed = (self.h - self.prev_h) * (60 / self.sim_parameters.timestep)
+        self.prev_h = self.h
+        
+        # Base consumption varies with speed
+        speed_factor = (self.v - self.v_min) / (self.v_max - self.v_min)
+        base_consumption = self.cruise_consumption * (0.8 + 0.4 * speed_factor**2)
+        
+        # Adjust for climb/descent
+        climb_factor = 1.0
+        if abs(self.vertical_speed) > 100:
+            if self.vertical_speed > 0:
+                # Climbing uses more fuel
+                climb_factor = 2.0
+            else:
+                # Descending uses less fuel
+                climb_factor = 0.7
+        
+        # Adjust for headwind (headwind increases fuel consumption)
+        wind_factor = 1.0
+        if abs(self.headwind) > 0:
+            wind_factor = 1.0 + 0.2 * min(abs(self.headwind) / max(1.0, self.v), 0.5)
+        
+        # Calculate final fuel consumption
+        consumption_rate = base_consumption * climb_factor * wind_factor
+        
+        # Calculate fuel burned this time step
+        fuel_burned = consumption_rate * self.sim_parameters.timestep
+        
+        # Update fuel mass
+        self.fuel_mass = max(0, self.fuel_mass - fuel_burned)
+        self.fuel_remaining_pct = (self.fuel_mass / self.max_fuel) * 100
+        
+        print(f"{self.name}: Fuel={self.fuel_remaining_pct:.1f}%, Consumption={fuel_burned:.3f}kg/s (Base={base_consumption:.3f}, Climb={climb_factor:.1f}, Wind={wind_factor:.1f})")
+        
+        # Return fuel status
+        return self.fuel_mass > 0
+
     def step(self):
-        """
-        Updates the aircraft's position based on its current heading and speed.
-        Called every simulation timestep to advance the aircraft's state.
-        """
+        """Updates the aircraft's position based on wind-affected ground speed and track."""
         # Record the current position in history
         self.position_history.append((self.x, self.y))
         
-        # Convert speed from knots to distance per timestep
-        # Formula: (speed in knots / 3600 seconds per hour) * timestep
-        v_unrotated = np.array([[0], [(self.v / 3600) * self.sim_parameters.timestep]])
+        # Update wind at current position
+        self.update_wind()
         
-        # Calculate position change using rotation matrix based on heading
-        delta_x_y = np.dot(rot_matrix(self.phi), v_unrotated) # linear algebra ho gaya bhai sahab
+        # Update fuel consumption
+        has_fuel = self.update_fuel()
+        
+        # If out of fuel, reduce performance
+        if not has_fuel:
+            # Start descent if no fuel (simplified glide)
+            self.h = max(0, self.h - 500 * self.sim_parameters.timestep)
+            # Reduce speed (simplified glide)
+            self.v = max(self.v_min, self.v * 0.98)
+            print(f"WARNING: {self.name} is out of fuel! Gliding at {self.v:.1f}kt, descending at 500ft/min")
+        
+        # Use track and ground speed for position update instead of heading and airspeed
+        track_rad = math.radians(self.track)
+        
+        # Calculate distance traveled this timestep
+        distance = (self.ground_speed / 3600) * self.sim_parameters.timestep
         
         # Update position
-        self.x += delta_x_y[0][0]
-        self.y += delta_x_y[1][0]
+        self.x += distance * math.sin(track_rad)
+        self.y += distance * math.cos(track_rad)
+        
+        print(f"{self.name}: Position updated to ({self.x:.2f}, {self.y:.2f}, {self.h:.0f}ft)")
+        
+        return has_fuel
 
 class SimParameters:
     def __init__(self, timestep: float, precision: float = 0.5, reward_shaping: bool = True,

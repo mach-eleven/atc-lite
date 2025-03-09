@@ -7,7 +7,7 @@ import numpy as np
 from gymnasium.utils import seeding
 from numba import jit
 
-from .rendering import Label
+from .rendering import Label, FuelGauge
 from .themes import ColorScheme
 from . import model
 from . import scenarios
@@ -153,7 +153,8 @@ class AtcGym(gym.Env):
             *[0 for _ in self._on_gp_altitudes],                          # Minimum on-glidepath altitude
             *[0 for _ in self._d_fafs],                          # Minimum distance to FAF
             *[-180 for _ in self._phi_rel_fafs],                       # Minimum relative angle to FAF
-            *[-180 for _ in self._phi_rel_runways]                        # Minimum relative angle to runway
+            *[-180 for _ in self._phi_rel_runways],                        # Minimum relative angle to runway
+            *[0 for _ in self._airplanes]                           # NEW: Minimum fuel percentage
         ], dtype=np.float32)
 
 
@@ -167,10 +168,11 @@ class AtcGym(gym.Env):
             *[airplane.h_max for airplane in self._airplanes],                  # maximum on glidepath altitude in feet
             *[self._world_max_distance for _ in self._d_fafs],                        # maximum distance to FAF in nautical miles
             *[360 for _ in self._phi_rel_fafs],                   # maximum relative angle to FAF in degrees
-            *[360 for _ in self._phi_rel_runways]                 # maximum relative angle to runway in degrees
+            *[360 for _ in self._phi_rel_runways],                 # maximum relative angle to runway in degrees
+            *[100 for _ in self._airplanes]                     # NEW: Maximum fuel percentage
         ], dtype=np.float32)
         
-        # Define the observation space: x, y, h, phi, v, h-mva, on_gp, d_faf, phi_rel_faf, phi_rel_runway
+        # Define the observation space: x, y, h, phi, v, h-mva, on_gp, d_faf, phi_rel_faf, phi_rel_runway, fuel
         # All values normalized to [-1, 1]
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(len(self.normalization_state_min),))
         self.reward_range = (-3000.0, 23000.0)  # Define the min/max possible rewards
@@ -209,6 +211,8 @@ class AtcGym(gym.Env):
         reward = -0.05 * self._sim_parameters.timestep
 
         dones = [False] * len(self._airplanes)
+        out_of_fuel = [False] * len(self._airplanes)
+        
         # Apply each action component and accumulate rewards
         c = 0
         for airplane in self._airplanes:
@@ -233,7 +237,14 @@ class AtcGym(gym.Env):
 
 
             # Update the airplane position based on its current state
-            airplane.step()
+            has_fuel = airplane.step()
+            
+            # Check if airplane is out of fuel
+            if not has_fuel:
+                out_of_fuel[c] = True
+                # Small penalty for running out of fuel
+                reward -= 10
+                print(f"Aircraft {airplane.name} is out of fuel!")
 
             # Check if airplane is above the MVA (minimum vectoring altitude)
             try:
@@ -244,20 +255,24 @@ class AtcGym(gym.Env):
                     self._win_buffer.append(0)
                     reward = -200  # Large negative reward
                     dones[c] = True
+                    print(f"Aircraft {airplane.name} has descended below MVA!")
             except ValueError:
                 # Airplane has left the defined airspace - failure
                 self._win_buffer.append(0)
                 dones[c] = True
                 reward = -50  # Negative reward
                 mva = 0  # Dummy MVA value for the final state
+                print(f"Aircraft {airplane.name} has left the airspace!")
 
             # Check if airplane has successfully reached the final approach corridor
             if self._runway.inside_corridor(airplane.x, airplane.y, airplane.h, airplane.phi):
                 # GAME WON! Aircraft successfully guided to final approach
                 self._win_buffer.append(1)
-                # Large positive reward plus bonus for finishing quickly
-                reward = 10000 + max((self.timestep_limit - self.timesteps) * 5, 0)
+                # Large positive reward plus bonus for finishing quickly and fuel efficiency
+                fuel_bonus = airplane.fuel_remaining_pct / 10  # Up to 10 points for fuel efficiency
+                reward = 10000 + max((self.timestep_limit - self.timesteps) * 5, 0) + fuel_bonus
                 dones[c] = True
+                print(f"Aircraft {airplane.name} has successfully reached the approach corridor!")
 
             # Apply additional reward shaping to guide learning
             if self._sim_parameters.reward_shaping:
@@ -278,15 +293,25 @@ class AtcGym(gym.Env):
                 reward += self._reward_glideslope(
                     airplane.h, self._on_gp_altitudes[c], app_position_reward
                 )
+                
+                # NEW: Small reward for fuel efficiency
+                reward += 0.01 * airplane.fuel_remaining_pct
 
             c += 1
 
-        self.done = all(dones)
+        # NEW: Check if all aircraft are out of fuel
+        if all(out_of_fuel):
+            self.done = True
+            reward = -100  # Penalty for all aircraft running out of fuel
+            print("All aircraft are out of fuel!")
+        else:
+            self.done = all(dones)
 
         # Check if time limit exceeded
         if self.timesteps > self.timestep_limit:
             reward = -200  # Negative reward for timeout
             self.done = True
+            print("Time limit exceeded!")
 
         # Get the current observation
         state = self._get_obs(mva)
@@ -411,6 +436,7 @@ class AtcGym(gym.Env):
         d_fafs = []
         on_gp_altitudes = []
         phi_rel_runways = []
+        fuel_percentages = []
 
         for airplane in self._airplanes:
 
@@ -432,6 +458,7 @@ class AtcGym(gym.Env):
             phi_rel_runways.append(phi_rel_runway)
             phi_rels.append(phi_rel_faf)
             on_gp_altitudes.append(on_gp_alt)
+            fuel_percentages.append(airplane.fuel_remaining_pct)
 
         self._d_fafs = d_fafs
         self._phi_rel_fafs = phi_rels
@@ -447,10 +474,11 @@ class AtcGym(gym.Env):
             *[airplane.phi for airplane in self._airplanes],  # Aircraft heading
             *[airplane.v for airplane in self._airplanes],  # Aircraft speed
             *[airplane.h - mva for airplane in self._airplanes],  # Height above minimum safe altitude
-            *self._on_gp_altitudes,
-            *self._d_fafs,                       # Distance to final approach fix
-            *self._phi_rel_fafs,             # Relative angle to final approach fix
-            *self._phi_rel_runways,                 # Relative angle to runway heading
+            *self._on_gp_altitudes,                     # Target altitude for glidepath
+            *self._d_fafs,                              # Distance to final approach fix
+            *self._phi_rel_fafs,                        # Relative angle to final approach fix
+            *self._phi_rel_runways,                     # Relative angle to runway heading
+            *fuel_percentages                           # NEW: Fuel percentage remaining
         ], dtype=np.float32)
         
         return state
@@ -565,69 +593,6 @@ class AtcGym(gym.Env):
                    self.normalization_action_factor[index] / 2 + \
                    self.normalization_action_offset[index]
 
-    def reset(self, seed=None, options=None):
-        """
-        Reset the environment to a new initial state
-        
-        Creates a new airplane instance in a safe location
-        
-        Args:
-            seed: Random seed (unused in this implementation)
-            options: Additional options (unused)
-            
-        Returns:
-            Initial state and info dictionary
-        """
-        self.done = False
-
-        # Calculate the center of the airspace for a safer starting position
-        center_x = (self._world_x_min + self._world_x_max) / 2
-        center_y = (self._world_y_min + self._world_y_max) / 2
-        
-        self._airplanes = []
-
-        for i in range(self._airplane_count):
-            
-            # Choose a random entry point from the scenario
-            entry_point = random.choice(self._scenario.entrypoints)
-            
-            # Place the airplane at a position 25% of the way from the center to the entry point
-            # This ensures it starts well within the airspace
-            x = center_x + 0.25 * (entry_point.x - center_x)
-            y = center_y + 0.25 * (entry_point.y - center_y)
-            
-            # Create new airplane instances for the simulation
-            self._airplanes.append(
-                model.Airplane(
-                    self._sim_parameters,
-                    f"FLT{i+1:03}",                                    # Flight identifier
-                    x, y,                                       # Position
-                    random.choice(entry_point.levels) * 100,    # Altitude
-                    entry_point.phi,                            # Heading
-                    250                                         # Initial speed
-                )
-            )
-              
-        # Reset state and tracking variables
-        self.state = self._get_obs(0)
-        self.total_reward = 0
-        self.last_reward = 0
-        self._actions_ignoring_resets += self.actions_taken
-        self.actions_taken = 0
-        self.timesteps = 0
-        self._episodes_run += 1
-
-        # Update the win/loss tracking buffer
-        if len(self._win_buffer) < self._win_buffer_size:
-            # Simulation ended from outside (time limit, etc.)
-            self._win_buffer.append(0)
-        
-        # Calculate the new winning ratio (moving average over recent episodes)
-        self.winning_ratio = self.winning_ratio + 1 / self._win_buffer_size * \
-                            (self._win_buffer[-1] - self._win_buffer.pop(0))
-
-        return self.state, {"info": "Environment reset"}
-
     def render(self, mode='rgb_array'):
         """
         Render the current state of the environment
@@ -643,8 +608,8 @@ class AtcGym(gym.Env):
             self._padding = 10
             
             # Use a larger fixed size for better visibility
-            screen_width = 2000   # 35
-            screen_height = 1600  # 40
+            screen_width = 2000
+            screen_height = 1600
 
             # Calculate dimensions based on world size
             world_size_x = self._world_x_max - self._world_x_min
@@ -723,7 +688,15 @@ class AtcGym(gym.Env):
             (corner_bottom_left[0][0], corner_bottom_left[1][0]),
             (corner_top_left[0][0], corner_top_left[1][0])
         ], True)
-        symbol.set_color(*ColorScheme.airplane)
+        
+        # Color the airplane based on fuel level
+        if airplane.fuel_remaining_pct > 66:
+            symbol.set_color(*ColorScheme.airplane)  # Normal color
+        elif airplane.fuel_remaining_pct > 33:
+            symbol.set_color(240, 240, 0)  # Yellow for medium fuel
+        else:
+            symbol.set_color(240, 0, 0)   # Red for low fuel
+            
         self.viewer.add_onetime(symbol)
 
         # Create labels with aircraft information
@@ -737,6 +710,17 @@ class AtcGym(gym.Env):
         label_details = Label(render_text, x=label_pos[0][0], y=label_pos[1][0] - 15)
         self.viewer.add_onetime(label_name)
         self.viewer.add_onetime(label_details)
+        
+        # Add a small fuel gauge near the airplane
+        fuel_gauge = FuelGauge(
+            x=label_pos[0][0], 
+            y=label_pos[1][0] - 30,
+            width=30,
+            height=5,
+            fuel_percentage=airplane.fuel_remaining_pct,
+            label_text="Fuel"
+        )
+        self.viewer.add_onetime(fuel_gauge)
 
     def _render_approach(self):
         """
@@ -815,8 +799,11 @@ class AtcGym(gym.Env):
                 f"Altitude: {airplane.h:.0f} ft",
                 f"Heading: {airplane.phi:.1f}°",
                 f"Speed: {airplane.v:.0f} knots",
+                f"Ground Speed: {airplane.ground_speed:.0f} knots",
+                f"Track: {airplane.track:.1f}°",
                 f"Distance to FAF: {self._d_fafs[airplane_index]:.1f} nm",
-                f"Height above MVA: {height_above_mva:.0f} ft"
+                f"Height above MVA: {height_above_mva:.0f} ft",
+                f"Fuel remaining: {airplane.fuel_remaining_pct:.1f}%"
             ]
             
             # Add parameter labels starting from the bottom
@@ -825,7 +812,18 @@ class AtcGym(gym.Env):
                 param_label = Label(param, x_pos, y, bold=False)
                 self.viewer.add_onetime(param_label)
 
-            y_pos -= 160  # Move up for next aircraft
+            # Add fuel gauge below parameters
+            fuel_gauge = FuelGauge(
+                x=x_pos,
+                y=y_pos - 20 * (len(params) + 1),
+                width=200,
+                height=15,
+                fuel_percentage=airplane.fuel_remaining_pct,
+                label_text="Fuel Gauge"
+            )
+            self.viewer.add_onetime(fuel_gauge)
+
+            y_pos -= 20 * (len(params) + 3)  # Move up for next aircraft with space for fuel gauge
         
     def _render_mvas(self):
         """
@@ -883,3 +881,76 @@ class AtcGym(gym.Env):
         if self.viewer is not None:
             self.viewer.close()
             self.viewer = None
+
+    def reset(self, seed=None, options=None):
+        """
+        Reset the environment to a new initial state
+        
+        Creates a new airplane instance in a safe location
+        
+        Args:
+            seed: Random seed (unused in this implementation)
+            options: Additional options (unused)
+            
+        Returns:
+            Initial state and info dictionary
+        """
+        self.done = False
+
+        # Calculate the center of the airspace for a safer starting position
+        center_x = (self._world_x_min + self._world_x_max) / 2
+        center_y = (self._world_y_min + self._world_y_max) / 2
+        
+        self._airplanes = []
+        self._d_fafs = []
+        self._phi_rel_fafs = []
+        self._phi_rel_runways = []
+        self._on_gp_altitudes = []
+
+        for i in range(self._airplane_count):
+            
+            # Choose a random entry point from the scenario
+            entry_point = random.choice(self._scenario.entrypoints)
+            
+            # Place the airplane at a position 25% of the way from the center to the entry point
+            # This ensures it starts well within the airspace
+            x = center_x + 0.25 * (entry_point.x - center_x)
+            y = center_y + 0.25 * (entry_point.y - center_y)
+            
+            # Create new airplane instances for the simulation
+            self._airplanes.append(
+                model.Airplane(
+                    self._sim_parameters,
+                    f"FLT{i+1:03}",                                    # Flight identifier
+                    x, y,                                       # Position
+                    random.choice(entry_point.levels) * 100,    # Altitude
+                    entry_point.phi,                            # Heading
+                    250                                         # Initial speed
+                )
+            )
+            
+            # Initialize arrays
+            self._d_fafs.append(0)
+            self._phi_rel_fafs.append(0)
+            self._phi_rel_runways.append(0)
+            self._on_gp_altitudes.append(0)
+              
+        # Reset state and tracking variables
+        self.state = self._get_obs(0)
+        self.total_reward = 0
+        self.last_reward = 0
+        self._actions_ignoring_resets += self.actions_taken
+        self.actions_taken = 0
+        self.timesteps = 0
+        self._episodes_run += 1
+
+        # Update the win/loss tracking buffer
+        if len(self._win_buffer) < self._win_buffer_size:
+            # Simulation ended from outside (time limit, etc.)
+            self._win_buffer.append(0)
+        
+        # Calculate the new winning ratio (moving average over recent episodes)
+        self.winning_ratio = self.winning_ratio + 1 / self._win_buffer_size * \
+                            (self._win_buffer[-1] - self._win_buffer.pop(0))
+
+        return self.state, {"info": "Environment reset"}

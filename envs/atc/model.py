@@ -10,7 +10,7 @@ from numba import jit  # Numba provides just-in-time compilation for faster exec
 
 # Conversion constant: 1 nautical mile = 6076 feet. I know it's distance now, fkn Pranjal.
 nautical_miles_to_feet = 6076  # ft/nm
-
+'''
 # Function to get wind speed at a given location and altitude
 def get_wind_speed(x, y, h):
     """
@@ -49,7 +49,7 @@ def get_wind_speed(x, y, h):
     print(f"Wind at ({x:.1f}, {y:.1f}, {h:.0f}ft): {wind_speed:.1f} knots from {wind_direction:.1f}°")
     
     return (wind_x, wind_y)
-
+'''
 class Airplane:
     def __init__(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
         """

@@ -589,6 +589,101 @@ class Airspace:
         combined_poly = shapely.ops.unary_union(polys)
         return combined_poly
 
+class Wind:
+    """
+    - Maintains a 2D grid of wind vectors covering a given bounding box.
+    - Summarily ignores altitude, so the wind is identical at all altitudes.
+    - Generates wind vectors by placing up to 3 swirl "centers" in the domain
+      (replace or augment with Perlin noise if you prefer).
+    """
+
+    def __init__(self, 
+                 bounding_box,      # (min_x, max_x, min_y, max_y) - region in FAF-as-origin coordinates 
+                                    # (can just be set as (max_x, min_x, 0, 0) acc to my understanding of our implementation)
+                 resolution=1.0,    # this is the spacing between points in our wind grid
+                 seed=0,            # for rng
+                 num_centers=3,     # how many hotspots to create
+                 swirl_scale=10.0): # strength of the swirl effect for each center
+       
+        self.min_x, self.max_x, self.min_y, self.max_y = bounding_box
+        self.resolution = resolution
+
+        # Number of grid cells in x / y directions
+        self.width  = int((self.max_x - self.min_x) / self.resolution) + 1
+        self.height = int((self.max_y - self.min_y) / self.resolution) + 1
+
+        # 3D array: (width, height, 2) => store (wind_x, wind_y)
+        self.wind_field = np.zeros((self.width, self.height, 2), dtype=float)
+
+        # Pre-generate wind vectors
+        self._generate_wind_field(seed=seed, num_centers=num_centers, swirl_scale=swirl_scale)
+
+    def _generate_wind_field(self, seed=0, num_centers=3, swirl_scale=10.0):
+        """
+        Generate a swirl‐based wind field by placing random swirl “centers”
+        in the bounding box. Each center contributes a swirl vector to each grid cell. (might be negligible)
+        not using perlin noise yet, but can be added later.
+        """
+        rng = np.random.default_rng(seed)
+
+        # Each center is (center_x, center_y, direction)
+        # 'direction' ±1 just flips swirl orientation
+        swirl_centers = []
+        for _ in range(num_centers):
+            cx = rng.uniform(self.min_x, self.max_x)
+            cy = rng.uniform(self.min_y, self.max_y)
+            direction = rng.choice([-1, 1])  # swirl clockwise vs counterclockwise
+            swirl_centers.append((cx, cy, direction))
+
+        # Fill each grid cell with the sum of swirl vectors from all centers
+        for i in range(self.width):
+            for j in range(self.height):
+                # Convert grid indices back to "world" coordinates
+                world_x = self.min_x + i * self.resolution
+                world_y = self.min_y + j * self.resolution
+
+                vx_total, vy_total = 0.0, 0.0
+                for (cx, cy, d) in swirl_centers:
+                    dx = world_x - cx
+                    dy = world_y - cy
+                    dist = math.sqrt(dx*dx + dy*dy) + 1e-6  # avoid div by zero
+
+                    # A swirl vector can be computed as a tangent to the radial vector:
+                    #   radial:    (dx, dy)
+                    #   tangent:   (-dy, dx) or (dy, -dx)
+                    # We'll pick (-dy, dx) and multiply by direction d to flip sign if needed
+                    tx = -dy
+                    ty =  dx
+
+                    # The swirl magnitude falls off with distance. Tweak as you like:
+                    swirl_strength = swirl_scale / dist
+
+                    vx_total += d * tx * swirl_strength
+                    vy_total += d * ty * swirl_strength
+
+                self.wind_field[i, j, 0] = vx_total
+                self.wind_field[i, j, 1] = vy_total
+
+    def get_wind_speed(self, x, y, h=None):
+        """
+        Lookup the wind vector at (x,y). Ignores altitude (h).
+
+        :return: (wind_x, wind_y) in knots (or whatever unit you used).
+        """
+        # Clamp (x,y) to bounding box so we don't go out of array bounds.
+        x_clamped = max(self.min_x, min(self.max_x, x))
+        y_clamped = max(self.min_y, min(self.max_y, y))
+
+        # Find nearest grid cell
+        i = int((x_clamped - self.min_x) / self.resolution)
+        j = int((y_clamped - self.min_y) / self.resolution)
+
+        # If you want bilinear interpolation, you'd do that here. For simplicity:
+        wind_x = self.wind_field[i, j, 0]
+        wind_y = self.wind_field[i, j, 1]
+
+        return (wind_x, wind_y)
+
 class EntryPoint:
     def __init__(self, x: float, y: float, phi: int, levels: List[int]):
         """

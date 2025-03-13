@@ -623,7 +623,7 @@ class Wind:
 
     def _generate_wind_field(self, seed=0, num_centers=3, swirl_scale=10.0):
         """
-        Generate a swirl‐based wind field by placing random swirl “centers”
+        Generate a swirl-based wind field by placing random swirl “centers”
         in the bounding box. Each center contributes a swirl vector to each grid cell. (might be negligible)
         not using perlin noise yet, but can be added later.
         """

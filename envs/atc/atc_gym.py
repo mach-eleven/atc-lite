@@ -89,7 +89,7 @@ class AtcGym(gym.Env):
         self._airspace = scenario.airspace
         # Get the MVA at the Final Approach Fix (FAF)
         self._faf_mva = self._airspace.get_mva_height(self._runway.corridor.faf[0][0], self._runway.corridor.faf[1][0])
-
+        self._wind = scenario.wind
         # Calculate world boundaries from the airspace
         bbox = self._airspace.get_bounding_box()
         self._world_x_min = bbox[0]
@@ -641,6 +641,7 @@ class AtcGym(gym.Env):
             self._render_runway()  # Runway
             self._render_faf()     # Final approach fix
             self._render_approach()  # Approach path
+            self._render_wind()   # Wind direction
 
         # Render dynamic elements
         for airplane in self._airplanes:
@@ -760,6 +761,45 @@ class AtcGym(gym.Env):
             )
             dash.set_color(*ColorScheme.lines_info)
             self.viewer.add_geom(dash)
+
+    def _render_wind(self):
+        """
+        Render the wind direction arrow on the screen
+        """
+        # airspace 
+        # self._wind is a Wind object
+        wind_field = self._wind.wind_field
+        # at each point in airspace, draw a line in the direction of the wind based on self._wind.resolution, we can discretize
+        discretization = int(self._wind.resolution)
+        for x in range(0, len(wind_field), discretization):
+            for y in range(0, len(wind_field[0]), discretization):
+                wind_vector = wind_field[x][y]
+                wind_speed = np.linalg.norm(wind_vector)
+                if wind_speed > 0:
+                    wind_vector /= wind_speed
+                    wind_vector *= 0.5 * self._scale
+                    vector = self._screen_vector(x, y)
+                    arrow = rendering.Line(
+                        (vector[0][0], vector[1][0]),
+                        (vector[0][0] + wind_vector[0], vector[1][0] + wind_vector[1])
+                    )
+                    arrow.set_color_opacity(*ColorScheme.wind)
+                    self.viewer.add_geom(arrow)
+                    
+                    # arrow base
+                    size = 2
+                    sqr = rendering.FilledPolygon([
+                        (arrow.start[0] - size, arrow.start[1] - size),
+                        (arrow.start[0] + size, arrow.start[1] - size),
+                        (arrow.start[0] + size, arrow.start[1] + size),
+                        (arrow.start[0] - size, arrow.start[1] + size)
+                    ])
+                    sqr.set_color_opacity(*ColorScheme.wind_arrow_base)
+
+                    self.viewer.add_geom(sqr)
+                    
+                
+
 
     def _render_faf(self):
         """

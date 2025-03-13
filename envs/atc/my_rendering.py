@@ -379,6 +379,17 @@ class Geom(object):
         """
         self._color.vec4 = (r, g, b, 255)  # Set RGB with full opacity
 
+    def set_color_opacity(self, r, g, b, a):
+        """
+        Set the RGBA color of the geometry.
+        
+        :param r: Red component (0-255)
+        :param g: Green component (0-255)
+        :param b: Blue component (0-255)
+        :param a: Alpha component (0-255)
+        """
+        self._color.vec4 = (r, g, b, a)
+
 
 class Attr(object):
     """
@@ -667,7 +678,11 @@ class PolyLine(Geom):
         Render the polyline using Pyglet shapes.
         """
         # Convert vertices to float to avoid possible type issues
-        self.v = [(float(x), float(y)) for x, y in self.v]
+        try:
+            self.v = [(float(x), float(y)) for x, y in self.v]
+        except TypeError as e:
+            print(self.v)
+            raise e
         
         # Create and draw Pyglet MultiLine
         ml = pyglet.shapes.MultiLine(*self.v, closed=self.close, color=self._color.vec4, thickness=self.linewidth)

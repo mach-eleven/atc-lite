@@ -145,11 +145,12 @@ def main():
     
     # Run one longer episode
     num_episodes = 5
-    max_steps_per_episode = 1000  # Much longer episode to see fuel effects
+    max_steps_per_episode = 600  # Much longer episode to see fuel effects
     
     for episode in range(num_episodes):
         print(f"\n*** REALISTIC SCENARIO SIMULATION ***")
         state, info = env.reset()
+
 
         airplane_count = len(env._airplanes)
         
@@ -193,9 +194,13 @@ def main():
         
         total_reward = 0
         for step in range(max_steps_per_episode):
-            # Get the pre-planned action for this step
-            action = planned_actions[step]
-            
+            # DEBUG: Use manual actions for testing
+            # action = planned_actions[step]
+        
+            # DEBUG: Random actions for testing
+            action = np.array([0.0, 0.0, 0.0]*airplane_count)  # Default action - maintain course
+            action += np.random.uniform(-0.2, 0.2, size=action.shape)
+
             # Step the environment
             state, reward, done, truncated, info = env.step(action)
             total_reward += reward
@@ -207,11 +212,10 @@ def main():
             if step % 30 == 0 or step < 5:
                 print(f"\n--- Step {step}, Reward: {reward:.2f}, Total: {total_reward:.2f} ---")
                 for i, airplane in enumerate(env._airplanes):
-                    print(f"Aircraft {airplane.name}:")
-                    print(f"  Position: ({airplane.x:.1f}, {airplane.y:.1f}), Alt: {airplane.h:.0f} ft")
-                    print(f"  Airspeed: {airplane.v:.1f} kts, Ground Speed: {airplane.ground_speed:.1f} kts")
-                    print(f"  Heading: {airplane.phi:.0f}°, Track: {airplane.track:.0f}°")
-                    print(f"  Fuel: {airplane.fuel_remaining_pct:.1f}%, Wind: {airplane.wind_x:.1f}/{airplane.wind_y:.1f} kts")
+                    print(f"{airplane.name}:\t\tPosition: ({airplane.x:.1f}, {airplane.y:.1f}) Altitude: {airplane.h:.0f} ft")
+                    print(f"\t\tAirspeed: {airplane.v:.1f} kts, Groundspeed: {airplane.ground_speed:.1f} kts")
+                    print(f"\t\tHeading: {airplane.phi:.0f}°, Track: {airplane.track:.0f}°")
+                    print(f"\t\tFuel: {airplane.fuel_remaining_pct:.1f}%, Wind: ({airplane.wind_x:.1f}, {airplane.wind_y:.1f}) kts\n")
             
             if done:
                 if reward > 1000:

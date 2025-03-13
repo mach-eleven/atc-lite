@@ -65,7 +65,7 @@ class FuelGauge(Geom):
     aircraft fuel levels. It displays a color-coded bar that changes from green
     to yellow to red as fuel decreases.
     """
-    def __init__(self, x, y, width, height, fuel_percentage, label_text):
+    def __init__(self, x, y, width, height, fuel_percentage):
         """
         Initialize a new fuel gauge.
         
@@ -74,7 +74,6 @@ class FuelGauge(Geom):
         :param width: Width of the gauge in pixels
         :param height: Height of the gauge in pixels
         :param fuel_percentage: Fuel level as a percentage (0-100)
-        :param label_text: Text label for the gauge
         """
         # Initialize the parent Geom class
         super().__init__()
@@ -85,8 +84,6 @@ class FuelGauge(Geom):
         self.height = height
         # Store the fuel percentage
         self.fuel_percentage = max(0, min(100, fuel_percentage))
-        # Store the label text
-        self.label_text = label_text
         
     def _render(self):
         """
@@ -141,17 +138,3 @@ class FuelGauge(Geom):
         )
         border.opacity = 128
         border.draw()
-        
-        # Create label
-        label = pyglet.text.Label(
-            f"{self.label_text}: {self.fuel_percentage:.1f}%",
-            font_name='Arial',
-            font_size=10,
-            weight='normal',
-            x=self.x, 
-            y=self.y - 15,
-            anchor_x="left",
-            anchor_y="top",
-            color=ColorScheme.label
-        )
-        label.draw()

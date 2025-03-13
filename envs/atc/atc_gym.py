@@ -724,15 +724,15 @@ class AtcGym(gym.Env):
         self.viewer.add_onetime(label_details)
         
         # Add a small fuel gauge near the airplane
-        fuel_gauge = FuelGauge(
-            x=label_pos[0][0], 
-            y=label_pos[1][0] - 30,
-            width=30,
-            height=5,
-            fuel_percentage=airplane.fuel_remaining_pct,
-            label_text="Fuel"
-        )
-        self.viewer.add_onetime(fuel_gauge)
+        # DEBUG Only
+        # fuel_gauge = FuelGauge(
+        #     x=label_pos[0][0], 
+        #     y=label_pos[1][0] - 40,
+        #     width=30,
+        #     height=5,
+        #     fuel_percentage=airplane.fuel_remaining_pct,
+        # )
+        # self.viewer.add_onetime(fuel_gauge)
 
     def _render_approach(self):
         """
@@ -827,11 +827,10 @@ class AtcGym(gym.Env):
             # Add fuel gauge below parameters
             fuel_gauge = FuelGauge(
                 x=x_pos,
-                y=y_pos - 20 * (len(params) + 1),
+                y=y_pos - 20 * (len(params) + 2),
                 width=200,
                 height=15,
                 fuel_percentage=airplane.fuel_remaining_pct,
-                label_text="Fuel Gauge"
             )
             self.viewer.add_onetime(fuel_gauge)
 

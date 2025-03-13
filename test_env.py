@@ -144,8 +144,8 @@ def main():
     faf_y = runway_y + 7 * math.cos(math.radians(runway_phi))
     
     # Run one longer episode
-    num_episodes = 1
-    max_steps_per_episode = 600  # Much longer episode to see fuel effects
+    num_episodes = 5
+    max_steps_per_episode = 1000  # Much longer episode to see fuel effects
     
     for episode in range(num_episodes):
         print(f"\n*** REALISTIC SCENARIO SIMULATION ***")

@@ -10,7 +10,7 @@ from numba import jit  # Numba provides just-in-time compilation for faster exec
 
 # Conversion constant: 1 nautical mile = 6076 feet. I know it's distance now, fkn Pranjal.
 nautical_miles_to_feet = 6076  # ft/nm
-'''
+
 # Function to get wind speed at a given location and altitude
 def get_wind_speed(x, y, h):
     """
@@ -46,10 +46,10 @@ def get_wind_speed(x, y, h):
     wind_x = -wind_speed * math.sin(wind_direction_rad)  # Negative because wind from this direction
     wind_y = -wind_speed * math.cos(wind_direction_rad)
     
-    print(f"Wind at ({x:.1f}, {y:.1f}, {h:.0f}ft): {wind_speed:.1f} knots from {wind_direction:.1f}°")
+    # print(f"Wind at ({x:.1f}, {y:.1f}, {h:.0f}ft): {wind_speed:.1f} knots from {wind_direction:.1f}°")
     
     return (wind_x, wind_y)
-'''
+
 class Airplane:
     def __init__(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
         """
@@ -248,7 +248,7 @@ class Airplane:
         # Calculate headwind component for fuel calculations
         self.headwind = -self.wind_x * math.sin(heading_rad) - self.wind_y * math.cos(heading_rad)
         
-        print(f"{self.name}: Airspeed={self.v:.1f}kt, Heading={self.phi:.1f}°, Ground Speed={self.ground_speed:.1f}kt, Track={self.track:.1f}°, Headwind={self.headwind:.1f}kt")
+        # print(f"{self.name}: Airspeed={self.v:.1f}kt, Heading={self.phi:.1f}°, Ground Speed={self.ground_speed:.1f}kt, Track={self.track:.1f}°, Headwind={self.headwind:.1f}kt")
 
     def update_fuel(self):
         """Update fuel quantity based on consumption."""
@@ -285,7 +285,7 @@ class Airplane:
         self.fuel_mass = max(0, self.fuel_mass - fuel_burned)
         self.fuel_remaining_pct = (self.fuel_mass / self.max_fuel) * 100
         
-        print(f"{self.name}: Fuel={self.fuel_remaining_pct:.1f}%, Consumption={fuel_burned:.3f}kg/s (Base={base_consumption:.3f}, Climb={climb_factor:.1f}, Wind={wind_factor:.1f})")
+        # print(f"{self.name}: Fuel={self.fuel_remaining_pct:.1f}%, Consumption={fuel_burned:.3f}kg/s (Base={base_consumption:.3f}, Climb={climb_factor:.1f}, Wind={wind_factor:.1f})")
         
         # Return fuel status
         return self.fuel_mass > 0
@@ -319,7 +319,7 @@ class Airplane:
         self.x += distance * math.sin(track_rad)
         self.y += distance * math.cos(track_rad)
         
-        print(f"{self.name}: Position updated to ({self.x:.2f}, {self.y:.2f}, {self.h:.0f}ft)")
+        # print(f"{self.name}: Position updated to ({self.x:.2f}, {self.y:.2f}, {self.h:.0f}ft)")
         
         return has_fuel
 
@@ -592,7 +592,7 @@ class Airspace:
 class Wind:
     """
     - Maintains a 2D grid of wind vectors covering a given bounding box.
-    - Summarily ignores altitude, so the wind is identical at all altitudes.
+    - Currently ignores altitude, so the wind is identical at all altitudes.
     - Generates wind vectors by placing up to 3 swirl "centers" in the domain
       (replace or augment with Perlin noise if you prefer).
     """
@@ -611,6 +611,9 @@ class Wind:
         # Number of grid cells in x / y directions
         self.width  = int((self.max_x - self.min_x) / self.resolution) + 1
         self.height = int((self.max_y - self.min_y) / self.resolution) + 1
+        
+        if self.width < 0 or self.height < 0:
+            raise ValueError("Likely Invalid bounding box! Check min/max x/y values and resolution.")
 
         # 3D array: (width, height, 2) => store (wind_x, wind_y)
         self.wind_field = np.zeros((self.width, self.height, 2), dtype=float)

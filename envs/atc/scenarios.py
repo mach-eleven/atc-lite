@@ -73,7 +73,7 @@ class SimpleScenario(Scenario):
         self.airspace = model.Airspace(self.mvas, self.runway)
 
         # Create the wind object 
-        self.wind = model.Wind((35, 0, 0, 40))
+        self.wind = model.Wind((0, 35, 0, 40))
         # Define a single entry point where aircraft enter the simulation
         # Parameters: (x, y, initial heading, list of possible altitudes in 100s of feet)
         # Create multiple random entry points around the edges of the airspace

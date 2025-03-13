@@ -11,6 +11,16 @@ from numba import jit  # Numba provides just-in-time compilation for faster exec
 # Conversion constant: 1 nautical mile = 6076 feet. I know it's distance now, fkn Pranjal.
 nautical_miles_to_feet = 6076  # ft/nm
 
+from enum import Enum
+
+class MvaType(Enum):
+    """Enumeration of different types of Minimum Vectoring Altitude areas."""
+    GENERIC = "Generic"
+    MOUNTAINOUS = "Mountainous" 
+    WEATHER = "Weather"
+    OCEANIC = "Oceanic"
+
+
 # Function to get wind speed at a given location and altitude
 def get_wind_speed(x, y, h):
     """
@@ -513,7 +523,7 @@ class Runway:
         return self.corridor.inside_corridor(x, y, h, phi)
 
 class MinimumVectoringAltitude:
-    def __init__(self, area: geom.Polygon, height: int):
+    def __init__(self, area: geom.Polygon, height: int, mva_type: MvaType = None):
         """
         Defines a Minimum Vectoring Altitude area - the lowest altitude
         an aircraft can safely fly in a specific region.
@@ -527,6 +537,8 @@ class MinimumVectoringAltitude:
         self.area_as_list = np.array(list(area.exterior.coords))
         # Extract bounding box for quicker preliminary position checks
         self.outer_bounds = area.bounds
+
+        self.mva_type = mva_type if mva_type else MvaType.GENERIC
 
 class Airspace:
     def __init__(self, mvas: List[MinimumVectoringAltitude], runway: Runway):

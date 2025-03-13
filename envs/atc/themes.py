@@ -1,3 +1,4 @@
+from matplotlib import colormaps
 # minimal-atc-rl/envs/atc/themes.py
 
 # Hello, this file contains the color scheme for the ATC simulation visualization. We shall use sexy colors!!!!!
@@ -12,3 +13,4 @@ class ColorScheme:
     label = (157, 224, 173, 255)
     wind = [255, 255, 255, 120]
     wind_arrow_base = [0, 255, 0, 120]
+    mva_height_colormap = colormaps.get_cmap('viridis')

@@ -16,7 +16,7 @@ import pyglet
 
 # TODO: Airplane should have d_faf, etc. stored in it not the array system we have now
 
-
+MAX_MVA_HEIGHT_FOR_VISUALIZATION = 50_000
 # JIT-compiled helper function to calculate a sigmoid-based distance metric
 # This creates a smooth transition between 0 and 1 as d approaches d_max
 @jit(nopython=True)
@@ -717,10 +717,10 @@ class AtcGym(gym.Env):
 
         # Create labels with aircraft information
         label_pos = np.dot(model.rot_matrix(135), 2 * corner_vector) + vector
-        render_altitude = round(airplane.h)  # Flight level
+        render_altitude = round(airplane.h) // 100  # Flight level
         render_speed = round(airplane.v)      # Speed in knots
-        render_text = f"{render_altitude}' {render_speed}kt"
-        
+        render_text = f"FL{render_altitude:03} {render_speed}kt"
+
         # Add aircraft callsign and details labels
         label_name = Label(airplane.name, x=label_pos[0][0], y=label_pos[1][0])
         label_details = Label(render_text, x=label_pos[0][0], y=label_pos[1][0] - 15)
@@ -851,7 +851,7 @@ class AtcGym(gym.Env):
             params = [
                 f"Flight: {airplane.name}",
                 f"Position: ({airplane.x:.1f}, {airplane.y:.1f})",
-                f"Altitude: {airplane.h:.0f} ft",
+                f"Altitude: {airplane.h} ft",
                 f"Heading: {airplane.phi:.1f}°",
                 f"Speed: {airplane.v:.0f} knots",
                 f"Ground Speed: {airplane.ground_speed:.0f} knots",
@@ -891,7 +891,10 @@ class AtcGym(gym.Env):
             coordinates = transform_world_to_screen(mva.area.exterior.coords)
 
             fill = rendering.FilledPolygon(coordinates)
-            fill.set_color(*ColorScheme.background_active)
+            # based on height, choose color from ColorScheme.mva_height_colormap which is a matplotlib linear colormap
+            norm_height_btn_0_1 = mva.height / MAX_MVA_HEIGHT_FOR_VISUALIZATION
+            color = [int(x*255) for x in ColorScheme.mva_height_colormap(norm_height_btn_0_1)]
+            fill.set_color_opacity(*color)
             self.viewer.add_geom(fill)
 
         for mva in self._mvas:
@@ -903,8 +906,10 @@ class AtcGym(gym.Env):
         for mva in self._mvas:
             # add label on edge of the mva indicating its FL
             label_pos = transform_world_to_screen(mva.area.centroid.coords)[0]
-            label = Label(f"{mva.height}ft", label_pos[0], label_pos[1], bold=False)
+            label = Label(f"FL{(mva.height // 100):03}", label_pos[0], label_pos[1], bold=False)
+            label2 = Label(f"{mva.mva_type.value}", label_pos[0], label_pos[1] - 15, bold=False)
             self.viewer.add_geom(label)
+            self.viewer.add_geom(label2)
 
     def _render_runway(self):
         """

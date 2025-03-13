@@ -683,12 +683,15 @@ class AtcGym(gym.Env):
         corner_top_left = np.dot(model.rot_matrix(315), corner_vector) + vector
 
         # also add an arrow to show the heading
-        arrow_vector = np.array([[0], [render_size * 1.5]])
-        arrow_tip = np.dot(model.rot_matrix(0), arrow_vector) + vector
-        arrow_end = np.dot(model.rot_matrix(airplane.phi), arrow_vector) + vector
+        # Create arrow to show heading from center of diamond
+        arrow_length = render_size * 6  # Fixed length
+        arrow_vector = np.array([[arrow_length], [0]])  # Start with horizontal vector
+        # Rotate arrow by airplane heading
+        rotated_arrow = np.dot(model.rot_matrix(airplane.phi), arrow_vector)
+        # Draw arrow from center of diamond
         arrow = rendering.Line(
-            (arrow_tip[0][0], arrow_tip[1][0]),
-            (arrow_end[0][0], arrow_end[1][0])
+            (vector[0][0], vector[1][0]),  # Start at diamond center
+            (vector[0][0] + rotated_arrow[0][0], vector[1][0] + rotated_arrow[1][0])  # End at rotated point
         )
         arrow.set_color(*ColorScheme.airplane)
         self.viewer.add_onetime(arrow)
@@ -713,9 +716,9 @@ class AtcGym(gym.Env):
 
         # Create labels with aircraft information
         label_pos = np.dot(model.rot_matrix(135), 2 * corner_vector) + vector
-        render_altitude = round(airplane.h / 100)  # Flight level (hundreds of feet)
-        render_speed = round(airplane.v / 10)      # Speed in tens of knots
-        render_text = f"{render_altitude}  {render_speed}"
+        render_altitude = round(airplane.h)  # Flight level
+        render_speed = round(airplane.v)      # Speed in knots
+        render_text = f"{render_altitude}' {render_speed}kt"
         
         # Add aircraft callsign and details labels
         label_name = Label(airplane.name, x=label_pos[0][0], y=label_pos[1][0])
@@ -853,10 +856,15 @@ class AtcGym(gym.Env):
 
         for mva in self._mvas:
             coordinates = transform_world_to_screen(mva.area.exterior.coords)
-
             outline = rendering.PolyLine(coordinates, True)
             outline.set_color(*ColorScheme.mva)
             self.viewer.add_geom(outline)
+
+        for mva in self._mvas:
+            # add label on edge of the mva indicating its FL
+            label_pos = transform_world_to_screen(mva.area.centroid.coords)[0]
+            label = Label(f"{mva.height}ft", label_pos[0], label_pos[1], bold=False)
+            self.viewer.add_geom(label)
 
     def _render_runway(self):
         """

@@ -129,7 +129,7 @@ def main():
     model.Airplane.__init__ = modified_init
     
     # Create environment with 3 aircraft for different scenarios
-    env = AtcGym(airplane_count=3, sim_parameters=sim_params)
+    env = AtcGym(airplane_count=2, sim_parameters=sim_params)
     
     # Reset the environment
     state, info = env.reset()

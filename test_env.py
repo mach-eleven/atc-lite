@@ -3,6 +3,8 @@ import sys
 import time
 import os
 
+from envs.atc.scenarios import LOWW
+
 # Set Pyglet configurations for macOS
 os.environ['PYGLET_SHADOW_WINDOW'] = '0'
 
@@ -129,8 +131,8 @@ def main():
     model.Airplane.__init__ = modified_init
     
     # Create environment with 3 aircraft for different scenarios
-    env = AtcGym(airplane_count=2, sim_parameters=sim_params)
-    
+    env = AtcGym(airplane_count=3, sim_parameters=sim_params, scenario=LOWW(random_entrypoints=True))
+
     # Reset the environment
     state, info = env.reset()
     

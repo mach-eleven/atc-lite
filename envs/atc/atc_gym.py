@@ -16,7 +16,7 @@ import pyglet
 
 # TODO: Airplane should have d_faf, etc. stored in it not the array system we have now
 
-MAX_MVA_HEIGHT_FOR_VISUALIZATION = 50_000
+MAX_MVA_HEIGHT_FOR_VISUALIZATION = 10_000
 # JIT-compiled helper function to calculate a sigmoid-based distance metric
 # This creates a smooth transition between 0 and 1 as d approaches d_max
 @jit(nopython=True)

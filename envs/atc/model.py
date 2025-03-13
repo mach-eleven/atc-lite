@@ -621,8 +621,8 @@ class Wind:
         self.resolution = resolution
 
         # Number of grid cells in x / y directions
-        self.width  = int((self.max_x - self.min_x) / self.resolution) + 1
-        self.height = int((self.max_y - self.min_y) / self.resolution) + 1
+        self.width  = int((self.max_x - self.min_x) / self.resolution) + 5
+        self.height = int((self.max_y - self.min_y) / self.resolution) + 5
         
         if self.width < 0 or self.height < 0:
             raise ValueError("Likely Invalid bounding box! Check min/max x/y values and resolution.")

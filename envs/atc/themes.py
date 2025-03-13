@@ -11,6 +11,6 @@ class ColorScheme:
     runway = lines_info
     airplane = [157, 224, 173]
     label = (157, 224, 173, 255)
-    wind = [255, 255, 255, 120]
-    wind_arrow_base = [0, 255, 0, 120]
+    wind = [255, 255, 255, 80]
+    wind_arrow_base = [0, 255, 0, 80]
     mva_height_colormap = colormaps.get_cmap('viridis')

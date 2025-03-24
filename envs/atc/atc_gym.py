@@ -12,7 +12,11 @@ from .themes import ColorScheme
 from . import model
 from . import scenarios
 from . import my_rendering as rendering
+import os
 import pyglet
+
+# Import headless rendering capabilities
+from .headless_rendering import HeadlessViewer
 
 # TODO: Airplane should have d_faf, etc. stored in it not the array system we have now
 
@@ -44,22 +48,24 @@ class AtcGym(gym.Env):
     
     # Setting the metadata for rendering modes and frame rate
     metadata = {
-        'render_modes': ['human', 'rgb_array'],
+        'render_modes': ['human', 'rgb_array', 'headless'],
         "render_fps": 50
     }
 
-    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None):
+    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array'):
         """
         Initialize the ATC gym environment
         
         Args:
+            airplane_count: Number of airplanes to simulate
             sim_parameters: Simulation parameters like timestep size
             scenario: The airspace scenario to use (runways, MVAs, etc.)
+            render_mode: 'human' for window rendering, 'rgb_array' for array output, 'headless' for no rendering
         """
 
         self._airplane_count = airplane_count
 
-        self.render_mode = 'rgb_array'
+        self.render_mode = render_mode
         
         # Use a default scenario if none provided
         if scenario is None:
@@ -594,16 +600,24 @@ class AtcGym(gym.Env):
                    self.normalization_action_factor[index] / 2 + \
                    self.normalization_action_offset[index]
 
-    def render(self, mode='rgb_array'):
+    def render(self, mode=None):
         """
         Render the current state of the environment
         
         Args:
-            mode: Either "human" for direct screen rendering or "rgb_array"
-            
+            mode: If provided, overrides the render_mode set during initialization
+                ('human', 'rgb_array', or 'headless')
+                
         Returns:
-            Rendered frame
+            Rendered frame or None in headless mode
         """
+        # Use the provided mode or fall back to the default
+        render_mode = mode if mode is not None else self.render_mode
+        
+        # In headless mode, don't render anything
+        if render_mode == 'headless':
+            return None
+        
         # Initialize viewer if not already created
         if self.viewer is None:
             self._padding = 10
@@ -624,33 +638,39 @@ class AtcGym(gym.Env):
                 (screen_height - 2 * self._padding) / world_size_y
             )
             
-            # Create the viewer and background (regular window but larger)
-            self.viewer = rendering.Viewer(screen_width, screen_height)
+            # Create the viewer - regular or headless depending on mode
+            if render_mode == 'headless':
+                self.viewer = HeadlessViewer(screen_width, screen_height)
+            else:
+                # Create the viewer and background (regular window but larger)
+                self.viewer = rendering.Viewer(screen_width, screen_height)
 
-            background = rendering.FilledPolygon([
-                (0, 0), 
-                (0, screen_height),
-                (screen_width, screen_height),
-                (screen_width, 0)
-            ])
-            background.set_color(*ColorScheme.background_inactive)
-            self.viewer.add_geom(background)
+                background = rendering.FilledPolygon([
+                    (0, 0), 
+                    (0, screen_height),
+                    (screen_width, screen_height),
+                    (screen_width, 0)
+                ])
+                background.set_color(*ColorScheme.background_inactive)
+                self.viewer.add_geom(background)
 
-            # Render static environment elements
-            self._render_mvas()    # Minimum vectoring altitude areas
-            self._render_runway()  # Runway
-            self._render_faf()     # Final approach fix
-            self._render_approach()  # Approach path
-            self._render_wind()   # Wind direction
+                # Render static environment elements
+                self._render_mvas()    # Minimum vectoring altitude areas
+                self._render_runway()  # Runway
+                self._render_faf()     # Final approach fix
+                self._render_approach()  # Approach path
+                self._render_wind()   # Wind direction
 
-        # Render dynamic elements
-        for airplane in self._airplanes:
-            self._render_airplane(airplane) # Aircraft symbols
-        self._render_all_aircraft_info_panel(self._airplanes) # Aircraft information panel
-        self._render_reward()      # Reward information
+        # Only render dynamic elements if not in headless mode
+        if render_mode != 'headless':
+            # Render dynamic elements
+            for airplane in self._airplanes:
+                self._render_airplane(airplane) # Aircraft symbols
+            self._render_all_aircraft_info_panel(self._airplanes) # Aircraft information panel
+            self._render_reward()      # Reward information
 
         # Return the rendered frame
-        return self.viewer.render(mode == 'rgb_array')
+        return self.viewer.render(render_mode == 'rgb_array')
     
     def _render_reward(self):
         """
@@ -666,16 +686,16 @@ class AtcGym(gym.Env):
 
         self.viewer.add_onetime(label_total)
         self.viewer.add_onetime(label_last)
-
+    
     def _render_airplane(self, airplane: model.Airplane):
         """
-        Render the airplane symbol and information
+        Render the airplane symbol and information with high visibility
         
         Args:
             airplane: The aircraft to render
         """
-        # Create diamond shape for aircraft symbol
-        render_size = 4
+        # GREATLY INCREASED aircraft symbol size
+        render_size = 12  # Increased from 4 to 12
         vector = self._screen_vector(airplane.x, airplane.y)
         corner_vector = np.array([[0], [render_size]])
         corner_top_right = np.dot(model.rot_matrix(45), corner_vector) + vector
@@ -683,61 +703,231 @@ class AtcGym(gym.Env):
         corner_bottom_left = np.dot(model.rot_matrix(225), corner_vector) + vector
         corner_top_left = np.dot(model.rot_matrix(315), corner_vector) + vector
 
-        # also add an arrow to show the heading
-        # Create arrow to show heading from center of diamond
-        arrow_length = render_size * 6  # Fixed length
-        arrow_vector = np.array([[arrow_length], [0]])  # Start with horizontal vector
-        # Rotate arrow by airplane heading
-        rotated_arrow = np.dot(model.rot_matrix(airplane.phi), arrow_vector)
-        # Draw arrow from center of diamond
-        arrow = rendering.Line(
-            (vector[0][0], vector[1][0]),  # Start at diamond center
-            (vector[0][0] + rotated_arrow[0][0], vector[1][0] + rotated_arrow[1][0])  # End at rotated point
-        )
-        arrow.set_color(*ColorScheme.airplane)
-        self.viewer.add_onetime(arrow)
-        
-        # Create the airplane symbol
+        # Create the airplane symbol with THICK lines using attrs param
         symbol = rendering.PolyLine([
             (corner_top_right[0][0], corner_top_right[1][0]),
             (corner_bottom_right[0][0], corner_bottom_right[1][0]),
             (corner_bottom_left[0][0], corner_bottom_left[1][0]),
             (corner_top_left[0][0], corner_top_left[1][0])
-        ], True)
+        ], True, linewidth=4)  # Added linewidth parameter here
         
-        # Color the airplane based on fuel level
+        # Color the airplane based on fuel level with BRIGHTER colors
         if airplane.fuel_remaining_pct > 66:
-            symbol.set_color(*ColorScheme.airplane)  # Normal color
+            symbol.set_color(255, 255, 255)  # Bright white
         elif airplane.fuel_remaining_pct > 33:
-            symbol.set_color(240, 240, 0)  # Yellow for medium fuel
+            symbol.set_color(255, 255, 0)  # Bright yellow
         else:
-            symbol.set_color(240, 0, 0)   # Red for low fuel
+            symbol.set_color(255, 0, 0)   # Bright red
             
         self.viewer.add_onetime(symbol)
 
+        # FILL the aircraft symbol to make it more visible
+        filled_symbol = rendering.FilledPolygon([
+            (corner_top_right[0][0], corner_top_right[1][0]),
+            (corner_bottom_right[0][0], corner_bottom_right[1][0]),
+            (corner_bottom_left[0][0], corner_bottom_left[1][0]),
+            (corner_top_left[0][0], corner_top_left[1][0])
+        ])
+        
+        # Color matching the outline but slightly transparent
+        if airplane.fuel_remaining_pct > 66:
+            filled_symbol.set_color_opacity(200, 200, 255, 150)  # Light blue fill
+        elif airplane.fuel_remaining_pct > 33:
+            filled_symbol.set_color_opacity(255, 255, 150, 150)  # Light yellow fill
+        else:
+            filled_symbol.set_color_opacity(255, 150, 150, 150)  # Light red fill
+            
+        self.viewer.add_onetime(filled_symbol)
+
+        # Add track arrow (green) to show actual direction of movement
+        # MUCH LONGER and THICKER arrow - use attrs parameter for linewidth
+        track_arrow_length = render_size * 12  # Very long arrow
+        track_arrow_vector = np.array([[track_arrow_length], [0]])  # Start with horizontal vector
+        # Rotate arrow by airplane track
+        rotated_track_arrow = np.dot(model.rot_matrix(airplane.track), track_arrow_vector)
+        # Draw arrow from center of diamond using attrs for linewidth
+        track_arrow = rendering.Line(
+            (vector[0][0], vector[1][0]),  # Start at diamond center
+            (vector[0][0] + rotated_track_arrow[0][0], vector[1][0] + rotated_track_arrow[1][0]),  # End at rotated point
+            attrs={"linewidth": 4}  # Using attrs parameter for linewidth
+        )
+        # MUCH BRIGHTER green color
+        track_arrow.set_color(0, 255, 0)  # Bright green for track
+        self.viewer.add_onetime(track_arrow)
+        
+        # Add large arrowhead to the track line
+        arrowhead_size = render_size * 2.5  # MUCH LARGER arrowhead
+        arrowhead_vector1 = np.array([[-arrowhead_size], [-arrowhead_size]])
+        arrowhead_vector2 = np.array([[-arrowhead_size], [arrowhead_size]])
+        
+        # Position arrowhead at the end of the track arrow
+        arrowhead_pos = vector + rotated_track_arrow
+        
+        # Rotate arrowhead to match track direction
+        rotated_arrowhead1 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector1) + arrowhead_pos
+        rotated_arrowhead2 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector2) + arrowhead_pos
+        
+        # Draw arrowhead with linewidth in attrs
+        arrowhead1 = rendering.Line(
+            (arrowhead_pos[0][0], arrowhead_pos[1][0]),
+            (rotated_arrowhead1[0][0], rotated_arrowhead1[1][0]),
+            attrs={"linewidth": 3}
+        )
+        arrowhead2 = rendering.Line(
+            (arrowhead_pos[0][0], arrowhead_pos[1][0]),
+            (rotated_arrowhead2[0][0], rotated_arrowhead2[1][0]),
+            attrs={"linewidth": 3}
+        )
+        arrowhead1.set_color(0, 255, 0)  # Bright green
+        arrowhead2.set_color(0, 255, 0)  # Bright green
+        self.viewer.add_onetime(arrowhead1)
+        self.viewer.add_onetime(arrowhead2)
+        
+        # Add heading arrow (blue) to show the direction the nose is pointing
+        # LONGER and THICKER arrow
+        heading_arrow_length = render_size * 10  # Longer arrow
+        heading_arrow_vector = np.array([[heading_arrow_length], [0]])  # Start with horizontal vector
+        # Rotate arrow by airplane heading
+        rotated_heading_arrow = np.dot(model.rot_matrix(airplane.phi), heading_arrow_vector)
+        # Draw arrow from center of diamond
+        heading_arrow = rendering.Line(
+            (vector[0][0], vector[1][0]),  # Start at diamond center
+            (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),  # End at rotated point
+            attrs={"linewidth": 3}  # Using attrs parameter for linewidth
+        )
+        # BRIGHTER blue
+        heading_arrow.set_color(50, 50, 255)  # Bright blue for heading
+        self.viewer.add_onetime(heading_arrow)
+        
+        # Add blue arrowhead to heading arrow
+        heading_arrowhead_size = render_size * 2  # Large arrowhead
+        heading_arrowhead_vector1 = np.array([[-heading_arrowhead_size], [-heading_arrowhead_size]])
+        heading_arrowhead_vector2 = np.array([[-heading_arrowhead_size], [heading_arrowhead_size]])
+        
+        # Position arrowhead at the end of the heading arrow
+        heading_arrowhead_pos = vector + rotated_heading_arrow
+        
+        # Rotate arrowhead to match heading direction
+        rotated_heading_arrowhead1 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector1) + heading_arrowhead_pos
+        rotated_heading_arrowhead2 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector2) + heading_arrowhead_pos
+        
+        # Draw THICKER heading arrowhead with attrs
+        heading_arrowhead1 = rendering.Line(
+            (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
+            (rotated_heading_arrowhead1[0][0], rotated_heading_arrowhead1[1][0]),
+            attrs={"linewidth": 2}
+        )
+        heading_arrowhead2 = rendering.Line(
+            (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
+            (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
+            attrs={"linewidth": 2}
+        )
+        heading_arrowhead1.set_color(50, 50, 255)  # Bright blue
+        heading_arrowhead2.set_color(50, 50, 255)  # Bright blue
+        self.viewer.add_onetime(heading_arrowhead1)
+        self.viewer.add_onetime(heading_arrowhead2)
+
         # Create labels with aircraft information
-        label_pos = np.dot(model.rot_matrix(135), 2 * corner_vector) + vector
+        label_pos = np.dot(model.rot_matrix(135), 2.5 * corner_vector) + vector
         render_altitude = round(airplane.h) // 100  # Flight level
         render_speed = round(airplane.v)      # Speed in knots
         render_text = f"FL{render_altitude:03} {render_speed}kt"
 
         # Add aircraft callsign and details labels
         label_name = Label(airplane.name, x=label_pos[0][0], y=label_pos[1][0])
-        label_details = Label(render_text, x=label_pos[0][0], y=label_pos[1][0] - 15)
+        label_details = Label(render_text, x=label_pos[0][0], y=label_pos[1][0] - 20)
+        label_hdg_trk = Label(f"HDG:{airplane.phi:.0f}° TRK:{airplane.track:.0f}°", 
+                              x=label_pos[0][0], y=label_pos[1][0] - 40)
+        label_wind = Label(f"Wind: {math.sqrt(airplane.wind_x**2 + airplane.wind_y**2):.1f}kt", 
+                           x=label_pos[0][0], y=label_pos[1][0] - 60)
+        
         self.viewer.add_onetime(label_name)
         self.viewer.add_onetime(label_details)
+        self.viewer.add_onetime(label_hdg_trk)
+        self.viewer.add_onetime(label_wind)
         
-        # Add a small fuel gauge near the airplane
-        # DEBUG Only
-        # fuel_gauge = FuelGauge(
-        #     x=label_pos[0][0], 
-        #     y=label_pos[1][0] - 40,
-        #     width=30,
-        #     height=5,
-        #     fuel_percentage=airplane.fuel_remaining_pct,
-        # )
-        # self.viewer.add_onetime(fuel_gauge)
+        # Add a larger fuel gauge near the airplane
+        fuel_gauge = FuelGauge(
+            x=label_pos[0][0], 
+            y=label_pos[1][0] - 80,
+            width=50,  # Wider
+            height=8,  # Taller
+            fuel_percentage=airplane.fuel_remaining_pct,
+        )
+        self.viewer.add_onetime(fuel_gauge)
+        
+    def _render_all_aircraft_info_panel(self, airplanes: list[model.Airplane]):
+        """
+        Render aircraft parameters as text labels in the corner of the screen
+        """
+        # Position for the labels - bottom right corner with padding
+        x_pos = self.viewer.width - 280  # Further right for more space
+        y_pos = self.viewer.height - 10  # Top side with margin
 
+        # Create labels for aircraft parameters
+        title = Label("AIRCRAFT PARAMETERS", x_pos, y_pos)
+        self.viewer.add_onetime(title)
+        
+        # Add a legend for the visualization - removed dotted line reference
+        legend_y = y_pos - 30
+        legend_title = Label("LEGEND:", x_pos, legend_y)
+        legend_heading = Label("Blue Arrow: Aircraft Heading", x_pos, legend_y - 25)
+        legend_track = Label("Green Arrow: Ground Track", x_pos, legend_y - 50)
+        
+        self.viewer.add_onetime(legend_title)
+        self.viewer.add_onetime(legend_heading)
+        self.viewer.add_onetime(legend_track)
+        
+        # Start aircraft details below the legend with more spacing
+        panel_y = legend_y - 85  # Reduced spacing since we removed one legend item
+        
+        for airplane_index, airplane in enumerate(airplanes):
+            
+            # Get current MVA with error handling
+            try:
+                current_mva = self._airspace.get_mva_height(airplane.x, airplane.y)
+                height_above_mva = airplane.h - current_mva
+            except ValueError:
+                height_above_mva = 0
+            
+            # Calculate crab angle (difference between heading and track)
+            crab_angle = model.relative_angle(airplane.phi, airplane.track)
+            
+            # Create parameter strings
+            params = [
+                f"Flight: {airplane.name}",
+                f"Position: ({airplane.x:.1f}, {airplane.y:.1f})",
+                f"Altitude: {airplane.h} ft",
+                f"Heading: {airplane.phi:.1f}°",
+                f"Ground Track: {airplane.track:.1f}°",
+                f"Crab Angle: {crab_angle:.1f}°",
+                f"Airspeed: {airplane.v:.0f} knots",
+                f"Ground Speed: {airplane.ground_speed:.0f} knots",
+                f"Wind: {math.sqrt(airplane.wind_x**2 + airplane.wind_y**2):.1f} knots",
+                f"Distance to FAF: {self._d_fafs[airplane_index]:.1f} nm",
+                f"Height above MVA: {height_above_mva:.0f} ft",
+                f"Fuel remaining: {airplane.fuel_remaining_pct:.1f}%"
+            ]
+            
+            # Add parameter labels with more spacing between lines
+            for i, param in enumerate(params):
+                y = panel_y - 25 * i  # Increased spacing between lines
+                param_label = Label(param, x_pos, y)
+                self.viewer.add_onetime(param_label)
+
+            # Add fuel gauge below parameters
+            fuel_gauge = FuelGauge(
+                x=x_pos,
+                y=panel_y - 25 * (len(params) + 1),
+                width=200,
+                height=15,  # Taller gauge
+                fuel_percentage=airplane.fuel_remaining_pct,
+            )
+            self.viewer.add_onetime(fuel_gauge)
+
+            panel_y -= 25 * (len(params) + 3)  # Move down for next aircraft with more space
+            
+            
     def _render_approach(self):
         """
         Render the approach path on the screen
@@ -826,59 +1016,6 @@ class AtcGym(gym.Env):
         poly_line.set_color(*ColorScheme.lines_info)
         self.viewer.add_geom(poly_line)
                 
-    def _render_all_aircraft_info_panel(self, airplanes: list[model.Airplane]):
-        """
-        Render aircraft parameters as text labels in the corner of the screen
-        """
-        # Position for the labels - bottom right corner with padding
-        x_pos = self.viewer.width - 230  # Right side with margin
-        y_pos = self.viewer.height - 10  # Top side with margin
-
-        # Create labels for aircraft parameters
-        title = Label("AIRCRAFT PARAMETERS", x_pos, y_pos, bold=True)
-        self.viewer.add_onetime(title)
-        
-        for airplane_index, airplane in enumerate(airplanes):
-            
-            # Get current MVA with error handling
-            try:
-                current_mva = self._airspace.get_mva_height(airplane.x, airplane.y)
-                height_above_mva = airplane.h - current_mva
-            except ValueError:
-                height_above_mva = 0
-            
-            # Create parameter strings
-            params = [
-                f"Flight: {airplane.name}",
-                f"Position: ({airplane.x:.1f}, {airplane.y:.1f})",
-                f"Altitude: {airplane.h} ft",
-                f"Heading: {airplane.phi:.1f}°",
-                f"Speed: {airplane.v:.0f} knots",
-                f"Ground Speed: {airplane.ground_speed:.0f} knots",
-                f"Track: {airplane.track:.1f}°",
-                f"Distance to FAF: {self._d_fafs[airplane_index]:.1f} nm",
-                f"Height above MVA: {height_above_mva:.0f} ft",
-                f"Fuel remaining: {airplane.fuel_remaining_pct:.1f}%"
-            ]
-            
-            # Add parameter labels starting from the bottom
-            for i, param in enumerate(params):
-                y = y_pos - 20 * (i + 1)
-                param_label = Label(param, x_pos, y, bold=False)
-                self.viewer.add_onetime(param_label)
-
-            # Add fuel gauge below parameters
-            fuel_gauge = FuelGauge(
-                x=x_pos,
-                y=y_pos - 20 * (len(params) + 2),
-                width=200,
-                height=15,
-                fuel_percentage=airplane.fuel_remaining_pct,
-            )
-            self.viewer.add_onetime(fuel_gauge)
-
-            y_pos -= 20 * (len(params) + 3)  # Move up for next aircraft with space for fuel gauge
-        
     def _render_mvas(self):
         """
         Renders the outlines of the minimum vectoring altitudes onto the screen.
@@ -947,74 +1084,89 @@ class AtcGym(gym.Env):
             self.viewer = None
 
     def reset(self, seed=None, options=None):
-        """
-        Reset the environment to a new initial state
-        
-        Creates a new airplane instance in a safe location
-        
-        Args:
-            seed: Random seed (unused in this implementation)
-            options: Additional options (unused)
+            """
+            Reset the environment to a new initial state
             
-        Returns:
-            Initial state and info dictionary
-        """
-        self.done = False
+            Creates a new airplane instance in a safe location
+            
+            Args:
+                seed: Random seed (unused in this implementation)
+                options: Additional options (unused)
+                
+            Returns:
+                Initial state and info dictionary
+            """
+            self.done = False
 
-        # Calculate the center of the airspace for a safer starting position
-        center_x = (self._world_x_min + self._world_x_max) / 2
-        center_y = (self._world_y_min + self._world_y_max) / 2
-        
-        self._airplanes = []
-        self._d_fafs = []
-        self._phi_rel_fafs = []
-        self._phi_rel_runways = []
-        self._on_gp_altitudes = []
+            # Calculate the center of the airspace for a safer starting position
+            center_x = (self._world_x_min + self._world_x_max) / 2
+            center_y = (self._world_y_min + self._world_y_max) / 2
+            
+            self._airplanes = []
+            self._d_fafs = []
+            self._phi_rel_fafs = []
+            self._phi_rel_runways = []
+            self._on_gp_altitudes = []
+            
+            # Get all available entry points
+            available_entrypoints = self._scenario.entrypoints.copy()
+            # If there are fewer entry points than requested airplanes, duplicate some
+            while len(available_entrypoints) < self._airplane_count:
+                available_entrypoints.extend(self._scenario.entrypoints)
+            
+            # Make sure each aircraft starts at a different entry point
+            # by shuffling the list and taking the first _airplane_count entries
+            random.shuffle(available_entrypoints)
+            selected_entrypoints = available_entrypoints[:self._airplane_count]
 
-        for i in range(self._airplane_count):
-            
-            # Choose a random entry point from the scenario
-            entry_point = random.choice(self._scenario.entrypoints)
-            
-            # Place the airplane at a position 25% of the way from the center to the entry point
-            # This ensures it starts well within the airspace
-            x = center_x + 0.25 * (entry_point.x - center_x)
-            y = center_y + 0.25 * (entry_point.y - center_y)
-            
-            # Create new airplane instances for the simulation
-            self._airplanes.append(
-                model.Airplane(
-                    self._sim_parameters,
-                    f"FLT{i+1:03}",                                    # Flight identifier
-                    x, y,                                       # Position
-                    random.choice(entry_point.levels) * 100,    # Altitude
-                    entry_point.phi,                            # Heading
-                    250                                         # Initial speed
+            for i in range(self._airplane_count):
+                # Use a different entry point for each aircraft
+                entry_point = selected_entrypoints[i]
+                
+                # Instead of placing the airplane 25% of the way from center to entry point,
+                # place it much closer to the entry point (90%) for better spacing
+                x = center_x + 0.9 * (entry_point.x - center_x)
+                y = center_y + 0.9 * (entry_point.y - center_y)
+                
+                # Add some random perturbation for increased separation
+                # This will move each aircraft randomly in a small area around its starting point
+                x += random.uniform(-5, 5)
+                y += random.uniform(-5, 5)
+                
+                # Create new airplane instances for the simulation
+                self._airplanes.append(
+                    model.Airplane(
+                        self._sim_parameters,
+                        f"FLT{i+1:03}",                                    # Flight identifier
+                        x, y,                                       # Position
+                        random.choice(entry_point.levels) * 100,    # Altitude
+                        entry_point.phi,                            # Heading
+                        250                                         # Initial speed
+                    )
                 )
-            )
+                
+                # Initialize arrays
+                self._d_fafs.append(0)
+                self._phi_rel_fafs.append(0)
+                self._phi_rel_runways.append(0)
+                self._on_gp_altitudes.append(0)
+                
+            # Reset state and tracking variables
+            self.state = self._get_obs(0)
+            self.total_reward = 0
+            self.last_reward = 0
+            self._actions_ignoring_resets += self.actions_taken
+            self.actions_taken = 0
+            self.timesteps = 0
+            self._episodes_run += 1
+
+            # Update the win/loss tracking buffer
+            if len(self._win_buffer) < self._win_buffer_size:
+                # Simulation ended from outside (time limit, etc.)
+                self._win_buffer.append(0)
             
-            # Initialize arrays
-            self._d_fafs.append(0)
-            self._phi_rel_fafs.append(0)
-            self._phi_rel_runways.append(0)
-            self._on_gp_altitudes.append(0)
-              
-        # Reset state and tracking variables
-        self.state = self._get_obs(0)
-        self.total_reward = 0
-        self.last_reward = 0
-        self._actions_ignoring_resets += self.actions_taken
-        self.actions_taken = 0
-        self.timesteps = 0
-        self._episodes_run += 1
+            # Calculate the new winning ratio (moving average over recent episodes)
+            self.winning_ratio = self.winning_ratio + 1 / self._win_buffer_size * \
+                                (self._win_buffer[-1] - self._win_buffer.pop(0))
 
-        # Update the win/loss tracking buffer
-        if len(self._win_buffer) < self._win_buffer_size:
-            # Simulation ended from outside (time limit, etc.)
-            self._win_buffer.append(0)
-        
-        # Calculate the new winning ratio (moving average over recent episodes)
-        self.winning_ratio = self.winning_ratio + 1 / self._win_buffer_size * \
-                            (self._win_buffer[-1] - self._win_buffer.pop(0))
-
-        return self.state, {"info": "Environment reset"}
+            return self.state, {"info": "Environment reset"}

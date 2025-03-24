@@ -22,7 +22,7 @@ class Label(Geom):
         :param text: The text content to display
         :param x: X-coordinate of the label position
         :param y: Y-coordinate of the label position
-        :param bold: Whether to render the text in bold (default: True)
+        :param bold: Whether to render the text in bold (default: True, but not used due to compatibility)
         """
         # Initialize the parent Geom class
         super().__init__()
@@ -31,7 +31,7 @@ class Label(Geom):
         # Store the position coordinates
         self.x = x
         self.y = y
-        # Store the bold setting
+        # Store the bold setting (not used in rendering due to compatibility)
         self.bold = bold
 
     def _render(self):
@@ -43,98 +43,62 @@ class Label(Geom):
         specified properties.
         """
         # Create a Pyglet text label with the configured properties
+        # Not using the bold parameter since it's not compatible with this version
         label = pyglet.text.Label(
             self.text,                  # The text to display
             font_name='Arial',          # Font family
-            font_size=12,               # Font size in points
-            weight='bold' if self.bold else 'normal',  # Bold or normal weight
+            font_size=16,               # Fixed larger font size
             x=self.x, y=self.y,         # Position coordinates
             anchor_x="left",            # Horizontal anchor at left side
             anchor_y="top",             # Vertical anchor at top side
-            color=ColorScheme.label     # Text color from theme
+            color=(255, 255, 255, 255)  # Bright white text for visibility
         )
         # Draw the label to the current OpenGL context
         label.draw()
-
-
+        
+        
 class FuelGauge(Geom):
     """
-    A specialized geometry class for rendering a fuel gauge in the simulation.
-    
-    This class extends the base Geom class to provide a visual representation of
-    aircraft fuel levels. It displays a color-coded bar that changes from green
-    to yellow to red as fuel decreases.
+    A simplified fuel gauge for maximum compatibility.
     """
     def __init__(self, x, y, width, height, fuel_percentage):
-        """
-        Initialize a new fuel gauge.
-        
-        :param x: X-coordinate of the gauge position
-        :param y: Y-coordinate of the gauge position
-        :param width: Width of the gauge in pixels
-        :param height: Height of the gauge in pixels
-        :param fuel_percentage: Fuel level as a percentage (0-100)
-        """
-        # Initialize the parent Geom class
+        """Initialize a new fuel gauge."""
         super().__init__()
-        # Store position and dimensions
         self.x = x
         self.y = y
         self.width = width
         self.height = height
-        # Store the fuel percentage
         self.fuel_percentage = max(0, min(100, fuel_percentage))
         
     def _render(self):
-        """
-        Render the fuel gauge using Pyglet's shape rendering capabilities.
-        
-        This method is called by the parent class's render() method during the
-        rendering cycle. It draws a background bar, a foreground bar representing
-        the fuel level, and a text label.
-        """
-        # Draw background (empty gauge)
-        background = pyglet.shapes.Rectangle(
+        """Render a simple fuel gauge with filled rectangles only."""
+        # Background rectangle (black)
+        bg_rect = pyglet.shapes.Rectangle(
             x=self.x, 
             y=self.y, 
             width=self.width, 
             height=self.height, 
-            color=(50, 50, 50)
+            color=(0, 0, 0)
         )
-        background.draw()
+        bg_rect.draw()
         
-        # Draw foreground (filled portion of gauge)
+        # Foreground filled portion based on fuel percentage
         if self.fuel_percentage > 0:
-            # Calculate fill width based on percentage
             fill_width = (self.fuel_percentage / 100) * self.width
             
-            # Determine color based on fuel level
+            # Color based on fuel level
             if self.fuel_percentage > 66:
-                # Green for high fuel
-                color = (0, 200, 0)
+                color = (0, 255, 0)  # Green
             elif self.fuel_percentage > 33:
-                # Yellow for medium fuel
-                color = (240, 240, 0)
+                color = (255, 255, 0)  # Yellow
             else:
-                # Red for low fuel
-                color = (200, 0, 0)
+                color = (255, 0, 0)  # Red
             
-            foreground = pyglet.shapes.Rectangle(
+            fg_rect = pyglet.shapes.Rectangle(
                 x=self.x, 
                 y=self.y, 
                 width=fill_width, 
                 height=self.height, 
                 color=color
             )
-            foreground.draw()
-        
-        # Add border around gauge
-        border = pyglet.shapes.Rectangle(
-            x=self.x, 
-            y=self.y, 
-            width=self.width, 
-            height=self.height, 
-            color=(255, 255, 255)
-        )
-        border.opacity = 128
-        border.draw()
+            fg_rect.draw()

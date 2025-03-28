@@ -34,18 +34,19 @@ def get_wind_speed(x, y, h):
         Tuple (wind_x, wind_y) in knots
     """
     # Base wind from west (270°) with slight randomization
-    base_wind_speed = 10 + random.uniform(-5, 5)  # Base wind in knots
+    # REDUCED wind strength from 10 to 5 knots
+    base_wind_speed = 5 + random.uniform(-2, 2)  # Base wind in knots
     
     # Wind increases with altitude (logarithmic increase)
-    altitude_factor = 1.0 + 0.2 * math.log(max(1, h / 1000))
+    altitude_factor = 1.0 + 0.1 * math.log(max(1, h / 1000))  # Reduced from 0.2 to 0.1
     
     # Positional variations (create some gradient across the airspace)
-    x_variation = math.sin(x * 0.1) * 5
-    y_variation = math.cos(y * 0.1) * 5
+    x_variation = math.sin(x * 0.1) * 2  # Reduced from 5 to 2
+    y_variation = math.cos(y * 0.1) * 2  # Reduced from 5 to 2
     
     # Add some randomization
-    x_variation += random.uniform(-2, 2)
-    y_variation += random.uniform(-2, 2)
+    x_variation += random.uniform(-1, 1)  # Reduced from -2, 2 to -1, 1
+    y_variation += random.uniform(-1, 1)  # Reduced from -2, 2 to -1, 1
     
     # Wind from west (270°) - using meteorological convention
     wind_speed = base_wind_speed * altitude_factor + x_variation + y_variation
@@ -132,6 +133,11 @@ class Airplane:
         # For tracking vertical speed
         self.prev_h = h
         self.vertical_speed = 0  # feet per minute
+        
+        # Flag to enable autopilot heading correction
+        self.autopilot_enabled = True
+        # Maximum rate at which autopilot can correct heading (degrees per second)
+        self.autopilot_max_correction = 1.0
 
     def above_mva(self, mvas):
         """
@@ -260,6 +266,32 @@ class Airplane:
         
         # print(f"{self.name}: Airspeed={self.v:.1f}kt, Heading={self.phi:.1f}°, Ground Speed={self.ground_speed:.1f}kt, Track={self.track:.1f}°, Headwind={self.headwind:.1f}kt")
 
+    def _autopilot_heading_correction(self):
+        """
+        Apply an autopilot heading correction to align heading more with track.
+        This is a simplified implementation of how real aircraft autopilots work.
+        """
+        if not self.autopilot_enabled:
+            return
+            
+        # Calculate the difference between track and heading
+        # This is the crab angle that needs to be maintained for the wind
+        delta_angle = relative_angle(self.track, self.phi)
+        
+        # If the difference is very small, don't bother correcting
+        if abs(delta_angle) < 0.5:
+            return
+            
+        # Determine the direction to adjust heading (positive = right turn, negative = left turn)
+        correction_sign = -1 if delta_angle > 0 else 1
+        
+        # Apply a gradual correction, limited by the maximum correction rate
+        correction = min(abs(delta_angle) * 0.1, self.autopilot_max_correction * self.sim_parameters.timestep)
+        correction *= correction_sign
+        
+        # Apply the heading correction
+        self.phi = (self.phi + correction) % 360
+
     def update_fuel(self):
         """Update fuel quantity based on consumption."""
         # Calculate vertical speed in feet per minute
@@ -307,6 +339,9 @@ class Airplane:
         
         # Update wind at current position
         self.update_wind()
+        
+        # Apply heading correction to better align with track (simulates autopilot)
+        self._autopilot_heading_correction()
         
         # Update fuel consumption
         has_fuel = self.update_fuel()
@@ -615,7 +650,7 @@ class Wind:
                  resolution=1.0,    # this is the spacing between points in our wind grid
                  seed=0,            # for rng
                  num_centers=3,     # how many hotspots to create
-                 swirl_scale=10.0): # strength of the swirl effect for each center
+                 swirl_scale=5.0):  # REDUCED from 10.0 to 5.0: strength of the swirl effect for each center
        
         self.min_x, self.max_x, self.min_y, self.max_y = bounding_box
         self.resolution = resolution
@@ -633,9 +668,9 @@ class Wind:
         # Pre-generate wind vectors
         self._generate_wind_field(seed=seed, num_centers=num_centers, swirl_scale=swirl_scale)
 
-    def _generate_wind_field(self, seed=0, num_centers=3, swirl_scale=10.0):
+    def _generate_wind_field(self, seed=0, num_centers=3, swirl_scale=5.0):
         """
-        Generate a swirl-based wind field by placing random swirl “centers”
+        Generate a swirl-based wind field by placing random swirl "centers"
         in the bounding box. Each center contributes a swirl vector to each grid cell. (might be negligible)
         not using perlin noise yet, but can be added later.
         """

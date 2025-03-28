@@ -2,6 +2,7 @@
 import sys
 import time
 import os
+import argparse
 
 from envs.atc.scenarios import LOWW
 
@@ -107,19 +108,45 @@ def generate_holding_pattern(steps, center_x, center_y, radius=2, altitude=15000
     
     return actions
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Run realistic ATC simulation with wind and fuel effects')
+    parser.add_argument('--headless', action='store_true', help='Run in headless mode (no visualization)')
+    parser.add_argument('--episodes', type=int, default=5, help='Number of episodes to run')
+    parser.add_argument('--steps', type=int, default=600, help='Maximum steps per episode')
+    parser.add_argument('--render-interval', type=int, default=1, 
+                       help='Render every N steps (only applies in non-headless mode)')
+    parser.add_argument('--wind-scale', type=float, default=5.0,
+                       help='Wind scale factor (higher = stronger winds)')
+    parser.add_argument('--autopilot', action='store_true', default=True,
+                       help='Enable autopilot heading correction')
+    parser.add_argument('--no-autopilot', action='store_false', dest='autopilot',
+                       help='Disable autopilot heading correction')
+    return parser.parse_args()
+
 def main():
+    args = parse_args()
+    
     print("Running realistic ATC simulation with wind and fuel effects...")
+    print(f"Wind scale: {args.wind_scale}, Autopilot: {'Enabled' if args.autopilot else 'Disabled'}")
+    
+    # Determine render mode based on arguments
+    render_mode = 'headless' if args.headless else 'human'
+    print(f"Render mode: {render_mode}")
     
     # Create environment with continuous action space and slower simulation speed
     # Use a longer timestep to increase fuel consumption effects
     sim_params = model.SimParameters(2.0, discrete_action_space=False)
     
-    # Override default fuel parameters in the model module to show more dramatic fuel effects
-    # This is just for testing purposes
+    # Store the original Airplane init method
     original_init = model.Airplane.__init__
     
-    def modified_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
+    # Global variable for autopilot setting
+    autopilot_enabled = args.autopilot
+    
+    def modified_init(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
+        # Call the original init with all its original parameters
+        original_init(self, sim_parameters, name, x, y, h, phi, v, h_min, h_max, v_min, v_max)
+        
         # Modify fuel parameters for more dramatic effects
         self.fuel_mass = 2000    # Reduced fuel quantity
         self.max_fuel = 2000     # Reduced max fuel
@@ -127,11 +154,30 @@ def main():
         # Increased consumption rates
         self.cruise_consumption = 2.0    # Higher base fuel flow (4x normal)
         
+        # Set autopilot based on global variable
+        self.autopilot_enabled = autopilot_enabled
+        
     # Apply the modified initialization
     model.Airplane.__init__ = modified_init
     
-    # Create environment with 3 aircraft for different scenarios
-    env = AtcGym(airplane_count=3, sim_parameters=sim_params, scenario=LOWW(random_entrypoints=True))
+    # Create custom wind scale for the scenario
+    class CustomLOWW(LOWW):
+        def __init__(self, random_entrypoints=True, wind_scale=5.0):
+            super().__init__(random_entrypoints)
+            # Override the wind with custom scale
+            minx, miny, maxx, maxy = self.airspace.get_bounding_box()
+            self.wind = model.Wind(
+                (math.ceil(minx), math.ceil(maxx), math.ceil(miny), math.ceil(maxy)),
+                swirl_scale=wind_scale
+            )
+    
+    # Create environment with 3 aircraft for different scenarios with the specified render mode
+    env = AtcGym(
+        airplane_count=3, 
+        sim_parameters=sim_params, 
+        scenario=CustomLOWW(random_entrypoints=True, wind_scale=args.wind_scale),
+        render_mode=render_mode
+    )
 
     # Reset the environment
     state, info = env.reset()
@@ -145,14 +191,13 @@ def main():
     faf_x = runway_x + 7 * math.sin(math.radians(runway_phi)) 
     faf_y = runway_y + 7 * math.cos(math.radians(runway_phi))
     
-    # Run one longer episode
-    num_episodes = 5
-    max_steps_per_episode = 600  # Much longer episode to see fuel effects
+    # Run episodes
+    num_episodes = args.episodes
+    max_steps_per_episode = args.steps
     
     for episode in range(num_episodes):
-        print(f"\n*** REALISTIC SCENARIO SIMULATION ***")
+        print(f"\n*** REALISTIC SCENARIO SIMULATION - EPISODE {episode+1}/{num_episodes} ***")
         state, info = env.reset()
-
 
         airplane_count = len(env._airplanes)
         
@@ -196,27 +241,31 @@ def main():
         
         total_reward = 0
         for step in range(max_steps_per_episode):
-            # DEBUG: Use manual actions for testing
-            # action = planned_actions[step]
-        
-            # DEBUG: Random actions for testing
-            action = np.array([0.0, 0.0, 0.0]*airplane_count)  # Default action - maintain course
-            action += np.random.uniform(-0.2, 0.2, size=action.shape)
+            # Use planned actions instead of random actions
+            # This gives more realistic flight paths
+            action = planned_actions[step]
+            
+            # Add small random perturbations to make it more realistic
+            action += np.random.uniform(-0.05, 0.05, size=action.shape)
 
             # Step the environment
             state, reward, done, truncated, info = env.step(action)
             total_reward += reward
             
-            # Render the environment with the correct mode
-            env.render(mode='human')
-            time.sleep(0.05)  # Slightly faster for longer simulation
+            # Only render in non-headless mode, and only at specified intervals
+            if not args.headless and step % args.render_interval == 0:
+                env.render()
+                time.sleep(0.05)  # Slightly faster for longer simulation
             
             if step % 30 == 0 or step < 5:
                 print(f"\n--- Step {step}, Reward: {reward:.2f}, Total: {total_reward:.2f} ---")
                 for i, airplane in enumerate(env._airplanes):
+                    # Calculate crab angle (difference between heading and track)
+                    crab_angle = model.relative_angle(airplane.phi, airplane.track)
+                    
                     print(f"{airplane.name}:\t\tPosition: ({airplane.x:.1f}, {airplane.y:.1f}) Altitude: {airplane.h:.0f} ft")
                     print(f"\t\tAirspeed: {airplane.v:.1f} kts, Groundspeed: {airplane.ground_speed:.1f} kts")
-                    print(f"\t\tHeading: {airplane.phi:.0f}°, Track: {airplane.track:.0f}°")
+                    print(f"\t\tHeading: {airplane.phi:.0f}°, Track: {airplane.track:.0f}° (Crab: {crab_angle:.1f}°)")
                     print(f"\t\tFuel: {airplane.fuel_remaining_pct:.1f}%, Wind: ({airplane.wind_x:.1f}, {airplane.wind_y:.1f}) kts\n")
             
             if done:

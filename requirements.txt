@@ -9,3 +9,6 @@ PyYAML
 stable-baselines3
 optuna
 pytest
+torchrl
+rich
+scipy

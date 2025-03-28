@@ -255,7 +255,7 @@ class AtcGym(gym.Env):
                     self._win_buffer.append(0)
                     reward = -200  # Large negative reward
                     dones[c] = True
-                    print(f"Aircraft {airplane.name} has descended below MVA!")
+                    # print(f"Aircraft {airplane.name} has descended below MVA!")
             except ValueError:
                 # Airplane has left the defined airspace - failure
                 self._win_buffer.append(0)
@@ -566,9 +566,9 @@ class AtcGym(gym.Env):
                 self.actions_taken += 1
             
             last_action[index] = action_to_take
-        except ValueError:
+        except ValueError as e:
             # Invalid action (outside permissible range)
-            print(f"Warning invalid action: {action_to_take} for index: {index}")
+            # print(f"Warning invalid action: {action_to_take} for index: {index}")
             reward -= 1.0  # Penalty for invalid action
 
         return reward, last_action

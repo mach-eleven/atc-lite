@@ -31,7 +31,6 @@ import envs
 import torch
 from torch import multiprocessing
 
-
 from collections import defaultdict
 from tqdm import tqdm
 
@@ -55,27 +54,40 @@ def train(
     ppo_params,
 ):
     """
-    Train the PPO agent on the specified environment."
+    Train the PPO agent on the specified environment.
     """
 
     print("Training PPO agent on environment:", name)
     print("Continuous action space:", is_continuous_action_space)
 
-    sim_params = model.SimParameters(2.0, discrete_action_space=False)
-    # Create environment with 3 aircraft for different scenarios
+    # Adjust initial action standard deviation to be more conservative
+    action_std = 0.3  # Start with smaller actions to keep aircraft in bounds
 
+    # Use a longer max episode length to give more time for learning
+    max_ep_len = 2000
+
+    # Create environment with proper parameters
+    sim_params = model.SimParameters(
+        1.0,  # Use a smaller timestep for more gradual state changes
+        discrete_action_space=not is_continuous_action_space
+    )
+    
+    # Create environment with fewer aircraft to start
     env = AtcGym(
-        airplane_count=3,
+        airplane_count=2,  # Start with fewer aircraft for easier learning
         sim_parameters=sim_params,
         scenario=LOWW(),
     )
-    env.reset()
+
+    # Reset environment to get initial state
+    state, _ = env.reset()  # Handle the newer Gym API that returns (state, info)
 
     state_dim = env.observation_space.shape[0]
     if is_continuous_action_space:
         action_dim = env.action_space.shape[0]
     else:
         action_dim = env.action_space.n
+    
     print("State dimension:", state_dim)
     print("Action dimension:", action_dim)
 
@@ -152,7 +164,8 @@ def train(
     if ppo_params["seed"]:
         torch.manual_seed(ppo_params["seed"])
         np.random.seed(ppo_params["seed"])
-        env.seed(ppo_params["seed"])
+        # Use the correct method for setting seed
+        env.reset(seed=ppo_params["seed"])
 
     ppo_agent = PPO(
         state_dim,
@@ -185,18 +198,32 @@ def train(
     time_step = 0
     i_episode = 0
 
+    # Add a debug flag to monitor aircraft positions
+    debug_mode = True
+
     while time_step <= max_training_timesteps:
-        state = env.reset()
+        state, _ = env.reset()
         current_ep_reward = 0
         done = False
+        truncated = False
+        
+        # Debug initial state
+        if debug_mode and i_episode < 3:
+            print(f"\nEpisode {i_episode} - Initial state:")
+            # Use _airplanes instead of airplanes and correct attribute names
+            for i, airplane in enumerate(env._airplanes):
+                print(f"Aircraft {i}: Position ({airplane.x:.1f}, {airplane.y:.1f}, {airplane.h:.1f}), "
+                      f"Heading {airplane.phi:.1f}°, Speed {airplane.v:.1f}")
         
         for t in range(1, max_ep_len+1):
+            # Handle state if it's a tuple (for newer Gym API compatibility)
             if isinstance(state, tuple):
                 state = state[0]
+            
             action = ppo_agent.select_action(state)
 
             # Perform action in the environment
-            state, reward, done, truncated, _ = env.step(action)
+            state, reward, done, truncated, info = env.step(action)
 
             ppo_agent.buffer.rewards.append(reward)
             ppo_agent.buffer.is_terminals.append(done)
@@ -212,36 +239,58 @@ def train(
                 ppo_agent.decay_action_std(action_std_decay_rate, min_action_std)
 
             if time_step % log_freq == 0:
-                log_avg_reward = save_running_reward / save_running_episodes
-                log_avg_reward = round(log_avg_reward, 4)
+                # Avoid division by zero
+                if save_running_episodes > 0:
+                    log_avg_reward = save_running_reward / save_running_episodes
+                    log_avg_reward = round(log_avg_reward, 4)
 
-                log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
-                log_f.flush()
+                    log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
+                    log_f.flush()
 
                 save_running_reward = 0
                 save_running_episodes = 0
             
             if time_step % print_freq == 0:
+                # Avoid division by zero
+                if print_running_episodes > 0:
+                    # print average reward till last episode
+                    print_avg_reward = print_running_reward / print_running_episodes
+                    print_avg_reward = round(print_avg_reward, 2)
 
-                # print average reward till last episode
-                print_avg_reward = print_running_reward / print_running_episodes
-                print_avg_reward = round(print_avg_reward, 2)
-
-                print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
+                    print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
 
                 print_running_reward = 0
                 print_running_episodes = 0
 
-            if time_step % save_model_freq == 0:
+            if time_step % save_model_freq == 0 and save_model:
                 checkpoint_path = checkpoint_directory / f"ppo_{name}_{ppo_params['seed']}_{time_step}.pth"
                 print("--------------------------------------------------------------------------------------------")
                 print(f"saving model at : {checkpoint_path}")
-                print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
+                
+                # Only print average reward if we have episodes to average
+                if print_running_episodes > 0:
+                    print_avg_reward = print_running_reward / print_running_episodes
+                    print_avg_reward = round(print_avg_reward, 2)
+                    print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
+                else:
+                    print("Episode : {} \t\t Timestep : {}".format(i_episode, time_step))
+                    
                 print("--------------------------------------------------------------------------------------------")
                 ppo_agent.save(str(checkpoint_path))
                 print("model saved")
                 print("Elapsed Time  : ", datetime.now().replace(microsecond=0) - start_time)
                 print("--------------------------------------------------------------------------------------------")
+
+            # Debug after step if aircraft left airspace
+            if debug_mode and info and "message" in info and "left the airspace" in info.get("message", ""):
+                # Use _airplanes instead of airplanes and correct attribute names
+                for i, airplane in enumerate(env._airplanes):
+                    if hasattr(airplane, 'status') and airplane.status == model.AircraftStatus.OUT_OF_BOUNDS:
+                        print(f"Aircraft {i} left airspace: Position ({airplane.x:.1f}, {airplane.y:.1f}, {airplane.h:.1f}), "
+                              f"Heading {airplane.phi:.1f}°, Speed {airplane.v:.1f}")
+                        if t < 10:  # Only for early departures
+                            print(f"Action taken: {action}")
+                            print(f"Initial position was approximately: {getattr(env, 'initial_positions', {}).get(i, 'Unknown')}")
 
             if done or truncated:
                 break
@@ -269,23 +318,23 @@ if __name__ == "__main__":
     train(
         name="AtcGym-v0",
         is_continuous_action_space=True,
-        max_ep_len=1000,
-        max_training_timesteps=300_000,
-        action_std=0.6,
-        action_std_decay_rate=0.05,  # linear decay implemented currently
+        max_ep_len=2000,  # Longer episodes
+        max_training_timesteps=500_000,  # More training time
+        action_std=0.3,  # Reduced initial action variance
+        action_std_decay_rate=0.03,  # Slower decay
         min_action_std=0.1,
-        action_std_decay_freq=250_000,  # decay every 250k steps
+        action_std_decay_freq=250_000,
         print_freq=5_000,
         log_freq=2_000,
         save_model_freq=10_000,
         save_model=True,
         ppo_params={
             "K_epochs": 80,
-            "update_timestep": 2_000,  # update policy every 2000 steps
-            "eps_clip": 0.2,  # clip parameter for PPO
-            "gamma": 0.99,  # discount factor
-            "lr": 0.0003,  # learning rate
-            "seed": 42,  # random seed
+            "update_timestep": 4_000,  # Update less frequently for more stable learning
+            "eps_clip": 0.2,
+            "gamma": 0.99,
+            "lr": 0.0001,  # Lower learning rate for more stable learning
+            "seed": 42,
         },
         log_dir=Path("logs/ppo"),
     )

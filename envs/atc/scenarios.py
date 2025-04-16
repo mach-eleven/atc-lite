@@ -288,3 +288,50 @@ class LOWW(Scenario):
         minx, miny, maxx, maxy = self.airspace.get_bounding_box()
         # print(minx, miny, maxx, maxy)
         self.wind = model.Wind((ceil(minx), ceil(maxx), ceil(miny), ceil(maxy)))
+
+    def generate_aircraft(self, count, bounds):
+        """Generate aircraft with safer initial positions"""
+        import numpy as np
+        from envs.atc.model import Aircraft
+        
+        # Make aircraft start well within bounds
+        padding = 10000  # meters from edge
+        min_x, max_x = bounds[0] + padding, bounds[1] - padding
+        min_y, max_y = bounds[2] + padding, bounds[3] - padding
+        
+        # Safe altitude range
+        min_alt, max_alt = 3000, 8000  # meters
+        
+        aircraft = []
+        for i in range(count):
+            # Start in a safer region
+            x = np.random.uniform(min_x, max_x)
+            y = np.random.uniform(min_y, max_y)
+            # Start with altitude that gives room to maneuver
+            altitude = np.random.uniform(min_alt, max_alt)
+            # Random heading, but start pointing inward if near edges
+            heading = np.random.uniform(0, 360)
+            
+            # Adjust heading to point more toward center if near edge
+            center_x = (bounds[0] + bounds[1]) / 2
+            center_y = (bounds[2] + bounds[3]) / 2
+            
+            # Simple vector toward center
+            dx = center_x - x
+            dy = center_y - y
+            center_angle = np.degrees(np.arctan2(dy, dx)) % 360
+            
+            # Blend between random and center-pointing heading
+            edge_proximity = min(
+                (x - min_x) / padding,
+                (max_x - x) / padding,
+                (y - min_y) / padding,
+                (max_y - y) / padding
+            )
+            # Closer to edge = more influence from center heading
+            blend_factor = 1 - min(1, edge_proximity)
+            heading = heading * (1-blend_factor) + center_angle * blend_factor
+            
+            aircraft.append(Aircraft(f"FLT{i+1:03d}", x, y, altitude, heading))
+        
+        return aircraft

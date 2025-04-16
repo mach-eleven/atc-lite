@@ -64,10 +64,13 @@ def train(
     sim_params = model.SimParameters(2.0, discrete_action_space=False)
     # Create environment with 3 aircraft for different scenarios
 
+    # TODO: DOESNT LISTEN TO HEADLESS
+
     env = AtcGym(
         airplane_count=3,
         sim_parameters=sim_params,
         scenario=LOWW(),
+        render_mode="headless",
     )
     env.reset()
 

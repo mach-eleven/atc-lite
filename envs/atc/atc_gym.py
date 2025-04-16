@@ -268,7 +268,7 @@ class AtcGym(gym.Env):
                 dones[c] = True
                 reward = -50  # Negative reward
                 mva = 0  # Dummy MVA value for the final state
-                print(f"Aircraft {airplane.name} has left the airspace!")
+                # print(f"Aircraft {airplane.name} has left the airspace!")
 
             # Check if airplane has successfully reached the final approach corridor
             if self._runway.inside_corridor(airplane.x, airplane.y, airplane.h, airplane.phi):

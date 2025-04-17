@@ -187,6 +187,17 @@ class AtcGym(gym.Env):
         print("Observation space: ", len(self.normalization_state_min))
         print("Action space: ", len(self.normalization_action_offset))
 
+        # Initialize trajectory visualization settings
+        self.show_trajectories = True  # Default: trajectories enabled
+        self.trajectory_colors = [
+            (255, 0, 0),    # Red
+            (0, 200, 255),  # Cyan
+            (255, 165, 0),  # Orange
+            (255, 0, 255),  # Magenta
+            (0, 255, 0)     # Green
+        ]
+        self.max_trail_length = 500  # Maximum number of history points to render
+
     def seed(self, seed=None):
         """
         Seeds the environment's random number generators for reproducibility
@@ -663,6 +674,9 @@ class AtcGym(gym.Env):
 
         # Only render dynamic elements if not in headless mode
         if render_mode != 'headless':
+            # Render trajectories before aircraft to keep them in the background
+            self._render_trajectories()
+            
             # Render dynamic elements
             for airplane in self._airplanes:
                 self._render_airplane(airplane) # Aircraft symbols
@@ -739,6 +753,12 @@ class AtcGym(gym.Env):
             
         self.viewer.add_onetime(filled_symbol)
 
+        # Rotate the aircraft symbol to match the aircraft's track direction
+        aircraft_symbol_transform = rendering.Transform()
+        aircraft_symbol_transform.set_rotation(math.radians(airplane.track))
+        symbol.add_attr(aircraft_symbol_transform)
+        filled_symbol.add_attr(aircraft_symbol_transform)
+
         # Add track arrow (green) to show actual direction of movement
         # MUCH LONGER and THICKER arrow - use attrs parameter for linewidth
         track_arrow_length = render_size * 12  # Very long arrow
@@ -783,49 +803,55 @@ class AtcGym(gym.Env):
         self.viewer.add_onetime(arrowhead1)
         self.viewer.add_onetime(arrowhead2)
         
-        # Add heading arrow (blue) to show the direction the nose is pointing
-        # LONGER and THICKER arrow
-        heading_arrow_length = render_size * 10  # Longer arrow
-        heading_arrow_vector = np.array([[heading_arrow_length], [0]])  # Start with horizontal vector
-        # Rotate arrow by airplane heading
-        rotated_heading_arrow = np.dot(model.rot_matrix(airplane.phi), heading_arrow_vector)
-        # Draw arrow from center of diamond
-        heading_arrow = rendering.Line(
-            (vector[0][0], vector[1][0]),  # Start at diamond center
-            (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),  # End at rotated point
-            attrs={"linewidth": 3}  # Using attrs parameter for linewidth
-        )
-        # BRIGHTER blue
-        heading_arrow.set_color(50, 50, 255)  # Bright blue for heading
-        self.viewer.add_onetime(heading_arrow)
-        
-        # Add blue arrowhead to heading arrow
-        heading_arrowhead_size = render_size * 2  # Large arrowhead
-        heading_arrowhead_vector1 = np.array([[-heading_arrowhead_size], [-heading_arrowhead_size]])
-        heading_arrowhead_vector2 = np.array([[-heading_arrowhead_size], [heading_arrowhead_size]])
-        
-        # Position arrowhead at the end of the heading arrow
-        heading_arrowhead_pos = vector + rotated_heading_arrow
-        
-        # Rotate arrowhead to match heading direction
-        rotated_heading_arrowhead1 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector1) + heading_arrowhead_pos
-        rotated_heading_arrowhead2 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector2) + heading_arrowhead_pos
-        
-        # Draw THICKER heading arrowhead with attrs
-        heading_arrowhead1 = rendering.Line(
-            (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
-            (rotated_heading_arrowhead1[0][0], rotated_heading_arrowhead1[1][0]),
-            attrs={"linewidth": 2}
-        )
-        heading_arrowhead2 = rendering.Line(
-            (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
-            (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
-            attrs={"linewidth": 2}
-        )
-        heading_arrowhead1.set_color(50, 50, 255)  # Bright blue
-        heading_arrowhead2.set_color(50, 50, 255)  # Bright blue
-        self.viewer.add_onetime(heading_arrowhead1)
-        self.viewer.add_onetime(heading_arrowhead2)
+        # Calculate crab angle (difference between heading and track)
+        crab_angle = model.relative_angle(airplane.phi, airplane.track)
+
+        # Calculate offset for heading arrow to show crab angle difference from track
+        # Only display heading arrow if there's a significant crab angle
+        if abs(crab_angle) > 2.0:
+            # Add heading arrow (blue) to show the direction the nose is pointing
+            # LONGER and THICKER arrow
+            heading_arrow_length = render_size * 5  # Shorter than track arrow
+            heading_arrow_vector = np.array([[heading_arrow_length], [0]])  # Start with horizontal vector
+            # Rotate arrow by airplane heading
+            rotated_heading_arrow = np.dot(model.rot_matrix(airplane.phi), heading_arrow_vector)
+            # Draw arrow from center of diamond
+            heading_arrow = rendering.Line(
+                (vector[0][0], vector[1][0]),  # Start at diamond center
+                (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),  # End at rotated point
+                attrs={"linewidth": 2}  # Using attrs parameter for linewidth
+            )
+            # BRIGHTER blue
+            heading_arrow.set_color(50, 50, 255)  # Bright blue for heading
+            self.viewer.add_onetime(heading_arrow)
+            
+            # Add blue arrowhead to heading arrow
+            heading_arrowhead_size = render_size * 1.5  # Large arrowhead
+            heading_arrowhead_vector1 = np.array([[-heading_arrowhead_size], [-heading_arrowhead_size]])
+            heading_arrowhead_vector2 = np.array([[-heading_arrowhead_size], [heading_arrowhead_size]])
+            
+            # Position arrowhead at the end of the heading arrow
+            heading_arrowhead_pos = vector + rotated_heading_arrow
+            
+            # Rotate arrowhead to match heading direction
+            rotated_heading_arrowhead1 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector1) + heading_arrowhead_pos
+            rotated_heading_arrowhead2 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector2) + heading_arrowhead_pos
+            
+            # Draw THICKER heading arrowhead with attrs
+            heading_arrowhead1 = rendering.Line(
+                (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
+                (rotated_heading_arrowhead1[0][0], rotated_heading_arrowhead1[1][0]),
+                attrs={"linewidth": 2}
+            )
+            heading_arrowhead2 = rendering.Line(
+                (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
+                (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
+                attrs={"linewidth": 2}
+            )
+            heading_arrowhead1.set_color(50, 50, 255)  # Bright blue
+            heading_arrowhead2.set_color(50, 50, 255)  # Bright blue
+            self.viewer.add_onetime(heading_arrowhead1)
+            self.viewer.add_onetime(heading_arrowhead2)
 
         # Create labels with aircraft information
         label_pos = np.dot(model.rot_matrix(135), 2.5 * corner_vector) + vector
@@ -1170,3 +1196,43 @@ class AtcGym(gym.Env):
                                 (self._win_buffer[-1] - self._win_buffer.pop(0))
 
             return self.state, {"info": "Environment reset"}
+
+    def _render_trajectories(self):
+        """
+        Render the trajectory trails of aircraft based on their position history.
+        """
+        if not self.show_trajectories:
+            return
+            
+        for i, airplane in enumerate(self._airplanes):
+            # Get position history from the airplane
+            history = airplane.position_history
+            
+            # Skip if history is too short
+            if len(history) < 2:
+                continue
+                
+            # Limit the trail length to prevent performance issues
+            trail_points = history[-self.max_trail_length:]
+            
+            # Convert world coordinates to screen coordinates
+            screen_points = []
+            for x, y in trail_points:
+                point = self._screen_vector(x, y)
+                screen_points.append((point[0][0], point[1][0]))
+            
+            # Draw polyline connecting history points
+            color = self.trajectory_colors[i % len(self.trajectory_colors)]
+            trail = rendering.PolyLine(screen_points, False, linewidth=2)
+            trail.set_color(*color)
+            self.viewer.add_onetime(trail)
+
+    def toggle_trajectories(self):
+        """
+        Toggle the display of aircraft trajectories
+        
+        Returns:
+            Current state of trajectory display (True=enabled, False=disabled)
+        """
+        self.show_trajectories = not self.show_trajectories
+        return self.show_trajectories

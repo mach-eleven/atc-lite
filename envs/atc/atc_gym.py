@@ -1,19 +1,19 @@
 # minimal-atc-rl/envs/atc/atc_gym.py
 import math
 import random
+import os
 
 import gymnasium as gym
 import numpy as np
 from gymnasium.utils import seeding
 from numba import jit
+import pyglet
 
 from .rendering import Label, FuelGauge
 from .themes import ColorScheme
 from . import model
 from . import scenarios
 from . import my_rendering as rendering
-import os
-import pyglet
 
 # Import headless rendering capabilities
 from .headless_rendering import HeadlessViewer
@@ -197,6 +197,19 @@ class AtcGym(gym.Env):
             (0, 255, 0)     # Green
         ]
         self.max_trail_length = 500  # Maximum number of history points to render
+        
+        # Load airplane image
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        airplane_path = os.path.join(script_dir, 'airplane.png')
+        try:
+            self.airplane_image = pyglet.image.load(airplane_path)
+            # Set the center of the image as the anchor point for proper rotation
+            self.airplane_image.anchor_x = self.airplane_image.width // 2
+            self.airplane_image.anchor_y = self.airplane_image.height // 2
+            self.use_airplane_image = True
+        except Exception as e:
+            print(f"Could not load airplane image: {e}")
+            self.use_airplane_image = False
 
     def seed(self, seed=None):
         """
@@ -583,7 +596,6 @@ class AtcGym(gym.Env):
         return state
 
     @staticmethod
-    # have to remove this
     def _calculate_on_gp_altitude(d_faf, faf_mva):
         """
         Calculate the target altitude on the 3-degree glidepath
@@ -785,91 +797,109 @@ class AtcGym(gym.Env):
     
     def _render_airplane(self, airplane: model.Airplane):
         """
-        Render the airplane symbol and information with high visibility
+        Render the airplane using an image and information with high visibility
         
         Args:
             airplane: The aircraft to render
         """
-        # GREATLY INCREASED aircraft symbol size
-        render_size = 12  # Increased from 4 to 12
+        # Get screen coordinates for the airplane
         vector = self._screen_vector(airplane.x, airplane.y)
-        corner_vector = np.array([[0], [render_size]])
-        corner_top_right = np.dot(model.rot_matrix(45), corner_vector) + vector
-        corner_bottom_right = np.dot(model.rot_matrix(135), corner_vector) + vector
-        corner_bottom_left = np.dot(model.rot_matrix(225), corner_vector) + vector
-        corner_top_left = np.dot(model.rot_matrix(315), corner_vector) + vector
-
-        # Create the airplane symbol with THICK lines using attrs param
-        symbol = rendering.PolyLine([
-            (corner_top_right[0][0], corner_top_right[1][0]),
-            (corner_bottom_right[0][0], corner_bottom_right[1][0]),
-            (corner_bottom_left[0][0], corner_bottom_left[1][0]),
-            (corner_top_left[0][0], corner_top_left[1][0])
-        ], True, linewidth=4)  # Added linewidth parameter here
         
-        # Color the airplane based on fuel level with BRIGHTER colors
-        if airplane.fuel_remaining_pct > 66:
-            symbol.set_color(255, 255, 255)  # Bright white
-        elif airplane.fuel_remaining_pct > 33:
-            symbol.set_color(255, 255, 0)  # Bright yellow
-        else:
-            symbol.set_color(255, 0, 0)   # Bright red
+        # If we can use the airplane image
+        if hasattr(self, 'use_airplane_image') and self.use_airplane_image:
+            # Create sprite from the image
+            sprite = pyglet.sprite.Sprite(self.airplane_image)
             
-        self.viewer.add_onetime(symbol)
-
-        # FILL the aircraft symbol to make it more visible
-        filled_symbol = rendering.FilledPolygon([
-            (corner_top_right[0][0], corner_top_right[1][0]),
-            (corner_bottom_right[0][0], corner_bottom_right[1][0]),
-            (corner_bottom_left[0][0], corner_bottom_left[1][0]),
-            (corner_top_left[0][0], corner_top_left[1][0])
-        ])
-        
-        # Color matching the outline but slightly transparent
-        if airplane.fuel_remaining_pct > 66:
-            filled_symbol.set_color_opacity(200, 200, 255, 150)  # Light blue fill
-        elif airplane.fuel_remaining_pct > 33:
-            filled_symbol.set_color_opacity(255, 255, 150, 150)  # Light yellow fill
-        else:
-            filled_symbol.set_color_opacity(255, 150, 150, 150)  # Light red fill
+            # Scale the sprite (adjust this value to change size)
+            scale_factor = 0.15
+            sprite.scale = scale_factor
             
-        self.viewer.add_onetime(filled_symbol)
+            # Position the sprite at the airplane's coordinates
+            sprite.x = vector[0][0]
+            sprite.y = vector[1][0]
+            
+            # Rotate the sprite to match the airplane's track
+            # Need to adjust as pyglet uses different angle convention
+            sprite.rotation = -airplane.track  # Negative because pyglet rotates clockwise
+            
+            # Color the sprite based on fuel level
+            if airplane.fuel_remaining_pct > 66:
+                sprite.color = (255, 255, 255)  # White for good fuel
+            elif airplane.fuel_remaining_pct > 33:
+                sprite.color = (255, 255, 0)    # Yellow for medium fuel
+            else:
+                sprite.color = (255, 100, 100)  # Red for low fuel
+            
+            # Draw the sprite
+            self.viewer.add_onetime_sprite(sprite)
+        else:
+            # Fallback to original diamond shape if image can't be loaded
+            render_size = 12
+            corner_vector = np.array([[0], [render_size]])
+            corner_top_right = np.dot(model.rot_matrix(45), corner_vector) + vector
+            corner_bottom_right = np.dot(model.rot_matrix(135), corner_vector) + vector
+            corner_bottom_left = np.dot(model.rot_matrix(225), corner_vector) + vector
+            corner_top_left = np.dot(model.rot_matrix(315), corner_vector) + vector
 
-        # Rotate the aircraft symbol to match the aircraft's track direction
-        aircraft_symbol_transform = rendering.Transform()
-        aircraft_symbol_transform.set_rotation(math.radians(airplane.track))
-        symbol.add_attr(aircraft_symbol_transform)
-        filled_symbol.add_attr(aircraft_symbol_transform)
+            symbol = rendering.PolyLine([
+                (corner_top_right[0][0], corner_top_right[1][0]),
+                (corner_bottom_right[0][0], corner_bottom_right[1][0]),
+                (corner_bottom_left[0][0], corner_bottom_left[1][0]),
+                (corner_top_left[0][0], corner_top_left[1][0])
+            ], True, linewidth=4)
+            
+            if airplane.fuel_remaining_pct > 66:
+                symbol.set_color(255, 255, 255)
+            elif airplane.fuel_remaining_pct > 33:
+                symbol.set_color(255, 255, 0)
+            else:
+                symbol.set_color(255, 0, 0)
+                
+            self.viewer.add_onetime(symbol)
+
+            filled_symbol = rendering.FilledPolygon([
+                (corner_top_right[0][0], corner_top_right[1][0]),
+                (corner_bottom_right[0][0], corner_bottom_right[1][0]),
+                (corner_bottom_left[0][0], corner_bottom_left[1][0]),
+                (corner_top_left[0][0], corner_top_left[1][0])
+            ])
+            
+            if airplane.fuel_remaining_pct > 66:
+                filled_symbol.set_color_opacity(200, 200, 255, 150)
+            elif airplane.fuel_remaining_pct > 33:
+                filled_symbol.set_color_opacity(255, 255, 150, 150)
+            else:
+                filled_symbol.set_color_opacity(255, 150, 150, 150)
+                
+            self.viewer.add_onetime(filled_symbol)
+
+            aircraft_symbol_transform = rendering.Transform()
+            aircraft_symbol_transform.set_rotation(math.radians(airplane.track))
+            symbol.add_attr(aircraft_symbol_transform)
+            filled_symbol.add_attr(aircraft_symbol_transform)
 
         # Add track arrow (green) to show actual direction of movement
-        # MUCH LONGER and THICKER arrow - use attrs parameter for linewidth
-        track_arrow_length = render_size * 12  # Very long arrow
-        track_arrow_vector = np.array([[track_arrow_length], [0]])  # Start with horizontal vector
-        # Rotate arrow by airplane track
+        track_arrow_length = 12 * 6  # Long arrow
+        track_arrow_vector = np.array([[track_arrow_length], [0]])
         rotated_track_arrow = np.dot(model.rot_matrix(airplane.track), track_arrow_vector)
-        # Draw arrow from center of diamond using attrs for linewidth
         track_arrow = rendering.Line(
-            (vector[0][0], vector[1][0]),  # Start at diamond center
-            (vector[0][0] + rotated_track_arrow[0][0], vector[1][0] + rotated_track_arrow[1][0]),  # End at rotated point
-            attrs={"linewidth": 4}  # Using attrs parameter for linewidth
+            (vector[0][0], vector[1][0]),
+            (vector[0][0] + rotated_track_arrow[0][0], vector[1][0] + rotated_track_arrow[1][0]),
+            attrs={"linewidth": 3}
         )
-        # MUCH BRIGHTER green color
-        track_arrow.set_color(0, 255, 0)  # Bright green for track
+        track_arrow.set_color(0, 255, 0)
         self.viewer.add_onetime(track_arrow)
         
-        # Add large arrowhead to the track line
-        arrowhead_size = render_size * 2.5  # MUCH LARGER arrowhead
+        # Add arrowhead to the track line
+        arrowhead_size = 6 * 2.5
         arrowhead_vector1 = np.array([[-arrowhead_size], [-arrowhead_size]])
         arrowhead_vector2 = np.array([[-arrowhead_size], [arrowhead_size]])
         
-        # Position arrowhead at the end of the track arrow
         arrowhead_pos = vector + rotated_track_arrow
         
-        # Rotate arrowhead to match track direction
         rotated_arrowhead1 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector1) + arrowhead_pos
         rotated_arrowhead2 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector2) + arrowhead_pos
         
-        # Draw arrowhead with linewidth in attrs
         arrowhead1 = rendering.Line(
             (arrowhead_pos[0][0], arrowhead_pos[1][0]),
             (rotated_arrowhead1[0][0], rotated_arrowhead1[1][0]),
@@ -880,8 +910,8 @@ class AtcGym(gym.Env):
             (rotated_arrowhead2[0][0], rotated_arrowhead2[1][0]),
             attrs={"linewidth": 3}
         )
-        arrowhead1.set_color(0, 255, 0)  # Bright green
-        arrowhead2.set_color(0, 255, 0)  # Bright green
+        arrowhead1.set_color(0, 255, 0)
+        arrowhead2.set_color(0, 255, 0)
         self.viewer.add_onetime(arrowhead1)
         self.viewer.add_onetime(arrowhead2)
         
@@ -892,34 +922,27 @@ class AtcGym(gym.Env):
         # Only display heading arrow if there's a significant crab angle
         if abs(crab_angle) > 2.0:
             # Add heading arrow (blue) to show the direction the nose is pointing
-            # LONGER and THICKER arrow
-            heading_arrow_length = render_size * 5  # Shorter than track arrow
-            heading_arrow_vector = np.array([[heading_arrow_length], [0]])  # Start with horizontal vector
-            # Rotate arrow by airplane heading
+            heading_arrow_length = 12 * 5
+            heading_arrow_vector = np.array([[heading_arrow_length], [0]])
             rotated_heading_arrow = np.dot(model.rot_matrix(airplane.phi), heading_arrow_vector)
-            # Draw arrow from center of diamond
             heading_arrow = rendering.Line(
-                (vector[0][0], vector[1][0]),  # Start at diamond center
-                (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),  # End at rotated point
-                attrs={"linewidth": 2}  # Using attrs parameter for linewidth
+                (vector[0][0], vector[1][0]),
+                (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),
+                attrs={"linewidth": 2}
             )
-            # BRIGHTER blue
-            heading_arrow.set_color(50, 50, 255)  # Bright blue for heading
+            heading_arrow.set_color(50, 50, 255)
             self.viewer.add_onetime(heading_arrow)
             
             # Add blue arrowhead to heading arrow
-            heading_arrowhead_size = render_size * 1.5  # Large arrowhead
+            heading_arrowhead_size = 12 * 1.5
             heading_arrowhead_vector1 = np.array([[-heading_arrowhead_size], [-heading_arrowhead_size]])
             heading_arrowhead_vector2 = np.array([[-heading_arrowhead_size], [heading_arrowhead_size]])
             
-            # Position arrowhead at the end of the heading arrow
             heading_arrowhead_pos = vector + rotated_heading_arrow
             
-            # Rotate arrowhead to match heading direction
             rotated_heading_arrowhead1 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector1) + heading_arrowhead_pos
             rotated_heading_arrowhead2 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector2) + heading_arrowhead_pos
             
-            # Draw THICKER heading arrowhead with attrs
             heading_arrowhead1 = rendering.Line(
                 (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
                 (rotated_heading_arrowhead1[0][0], rotated_heading_arrowhead1[1][0]),
@@ -930,36 +953,40 @@ class AtcGym(gym.Env):
                 (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
                 attrs={"linewidth": 2}
             )
-            heading_arrowhead1.set_color(50, 50, 255)  # Bright blue
-            heading_arrowhead2.set_color(50, 50, 255)  # Bright blue
+            heading_arrowhead1.set_color(50, 50, 255)
+            heading_arrowhead2.set_color(50, 50, 255)
             self.viewer.add_onetime(heading_arrowhead1)
             self.viewer.add_onetime(heading_arrowhead2)
 
         # Create labels with aircraft information
-        label_pos = np.dot(model.rot_matrix(135), 2.5 * corner_vector) + vector
-        render_altitude = round(airplane.h) // 100  # Flight level
-        render_speed = round(airplane.v)      # Speed in knots
+        render_altitude = round(airplane.h) // 100
+        render_speed = round(airplane.v)
         render_text = f"FL{render_altitude:03} {render_speed}kt"
+        
+        # Position labels a bit offset from the aircraft
+        label_offset = 20  # Pixels
+        label_x = vector[0][0] + label_offset
+        label_y = vector[1][0] + label_offset
 
         # Add aircraft callsign and details labels
-        label_name = Label(airplane.name, x=label_pos[0][0], y=label_pos[1][0])
-        label_details = Label(render_text, x=label_pos[0][0], y=label_pos[1][0] - 20)
+        label_name = Label(airplane.name, x=label_x, y=label_y)
+        label_details = Label(render_text, x=label_x, y=label_y - 20)
         label_hdg_trk = Label(f"HDG:{airplane.phi:.0f}° TRK:{airplane.track:.0f}°", 
-                              x=label_pos[0][0], y=label_pos[1][0] - 40)
+                              x=label_x, y=label_y - 40)
         label_wind = Label(f"Wind: {math.sqrt(airplane.wind_x**2 + airplane.wind_y**2):.1f}kt", 
-                           x=label_pos[0][0], y=label_pos[1][0] - 60)
+                           x=label_x, y=label_y - 60)
         
         self.viewer.add_onetime(label_name)
         self.viewer.add_onetime(label_details)
         self.viewer.add_onetime(label_hdg_trk)
         self.viewer.add_onetime(label_wind)
         
-        # Add a larger fuel gauge near the airplane
+        # Add a fuel gauge near the airplane
         fuel_gauge = FuelGauge(
-            x=label_pos[0][0], 
-            y=label_pos[1][0] - 80,
-            width=50,  # Wider
-            height=8,  # Taller
+            x=label_x, 
+            y=label_y - 80,
+            width=50,
+            height=8,
             fuel_percentage=airplane.fuel_remaining_pct,
         )
         self.viewer.add_onetime(fuel_gauge)

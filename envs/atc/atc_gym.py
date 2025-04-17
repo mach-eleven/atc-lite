@@ -225,7 +225,22 @@ class AtcGym(gym.Env):
         self.timesteps += 1
         self.done = False
         # Small negative reward per timestep to encourage efficiency
-        reward = -0.05 * self._sim_parameters.timestep
+        time_penalty = -0.05 * self._sim_parameters.timestep
+        reward = time_penalty
+        
+        # Dictionary to track reward components for logging
+        reward_components = {
+            "time_penalty": time_penalty,
+            "action_rewards": 0,
+            "fuel_penalties": 0,
+            "mva_penalties": 0,
+            "airspace_penalties": 0,
+            "success_rewards": 0,
+            "approach_position_rewards": 0,
+            "approach_angle_rewards": 0,
+            "glideslope_rewards": 0,
+            "fuel_efficiency_rewards": 0
+        }
 
         dones = [False] * len(self._airplanes)
         out_of_fuel = [False] * len(self._airplanes)
@@ -236,18 +251,26 @@ class AtcGym(gym.Env):
             action = action_array[c * 3: (c + 1) * 3] # for airplane 0: 0-2, for airplane 1: 3-5
             last_action = self.last_action[c * 3: (c + 1) * 3]
 
-            rewa, updated_last_action = self._action_with_reward(airplane.action_v, action, last_action, 0)    # Speed
-            reward += rewa
+            # Process speed action
+            action_reward, updated_last_action = self._action_with_reward(airplane.action_v, action, last_action, 0)
+            reward += action_reward
+            reward_components["action_rewards"] += action_reward
             self.last_action[(c * 3) + 0] = updated_last_action[0]
             self.last_action[(c * 3) + 1] = updated_last_action[1]
             self.last_action[(c * 3) + 2] = updated_last_action[2]
-            rewa, updated_last_action = self._action_with_reward(airplane.action_h, action, last_action, 1)    # Altitude
-            reward += rewa
+            
+            # Process altitude action
+            action_reward, updated_last_action = self._action_with_reward(airplane.action_h, action, last_action, 1)
+            reward += action_reward
+            reward_components["action_rewards"] += action_reward
             self.last_action[(c * 3) + 0] = updated_last_action[0]
             self.last_action[(c * 3) + 1] = updated_last_action[1]
             self.last_action[(c * 3) + 2] = updated_last_action[2]
-            rewa, updated_last_action = self._action_with_reward(airplane.action_phi, action, last_action, 2)  # Heading
-            reward += rewa
+            
+            # Process heading action
+            action_reward, updated_last_action = self._action_with_reward(airplane.action_phi, action, last_action, 2)
+            reward += action_reward
+            reward_components["action_rewards"] += action_reward
             self.last_action[(c * 3) + 0] = updated_last_action[0]
             self.last_action[(c * 3) + 1] = updated_last_action[1]
             self.last_action[(c * 3) + 2] = updated_last_action[2]
@@ -260,7 +283,9 @@ class AtcGym(gym.Env):
             if not has_fuel:
                 out_of_fuel[c] = True
                 # Small penalty for running out of fuel
-                reward -= 10
+                fuel_penalty = -10
+                reward += fuel_penalty
+                reward_components["fuel_penalties"] += fuel_penalty
                 print(f"Aircraft {airplane.name} is out of fuel!")
 
             # Check if airplane is above the MVA (minimum vectoring altitude)
@@ -270,14 +295,18 @@ class AtcGym(gym.Env):
                 if airplane.h < mva:
                     # Airplane has descended below minimum safe altitude - failure
                     self._win_buffer.append(0)
-                    reward = -200  # Large negative reward
+                    mva_penalty = -200
+                    reward = mva_penalty  # Large negative reward
+                    reward_components["mva_penalties"] += mva_penalty
                     dones[c] = True
-                    # print(f"Aircraft {airplane.name} has descended below MVA!")
+                    print(f"Aircraft {airplane.name} has descended below MVA!")
             except ValueError:
                 # Airplane has left the defined airspace - failure
                 self._win_buffer.append(0)
                 dones[c] = True
-                reward = -50  # Negative reward
+                airspace_penalty = -50  # Negative reward
+                reward = airspace_penalty
+                reward_components["airspace_penalties"] += airspace_penalty
                 mva = 0  # Dummy MVA value for the final state
                 print(f"Aircraft {airplane.name} has left the airspace!")
 
@@ -287,9 +316,13 @@ class AtcGym(gym.Env):
                 self._win_buffer.append(1)
                 # Large positive reward plus bonus for finishing quickly and fuel efficiency
                 fuel_bonus = airplane.fuel_remaining_pct / 10  # Up to 10 points for fuel efficiency
-                reward = 10000 + max((self.timestep_limit - self.timesteps) * 5, 0) + fuel_bonus
+                time_bonus = max((self.timestep_limit - self.timesteps) * 5, 0)
+                success_reward = 10000 + time_bonus + fuel_bonus
+                reward = success_reward
+                reward_components["success_rewards"] += success_reward
                 dones[c] = True
                 print(f"Aircraft {airplane.name} has successfully reached the approach corridor!")
+                print(f"  Fuel bonus: +{fuel_bonus:.2f} | Time bonus: +{time_bonus:.2f}")
 
             # Apply additional reward shaping to guide learning
             if self._sim_parameters.reward_shaping:
@@ -299,34 +332,45 @@ class AtcGym(gym.Env):
                     self._phi_rel_fafs[c], self._world_max_distance
                 )
                 reward += app_position_reward
+                reward_components["approach_position_rewards"] += app_position_reward
                 
                 # Reward for correct approach angle
-                reward += self._reward_approach_angle(
+                app_angle_reward = self._reward_approach_angle(
                     self._runway.phi_to_runway,
                     self._phi_rel_fafs[c], airplane.phi, app_position_reward
                 )
+                reward += app_angle_reward
+                reward_components["approach_angle_rewards"] += app_angle_reward
                 
                 # Reward for being on the correct glideslope
-                reward += self._reward_glideslope(
+                glideslope_reward = self._reward_glideslope(
                     airplane.h, self._on_gp_altitudes[c], app_position_reward
                 )
+                reward += glideslope_reward
+                reward_components["glideslope_rewards"] += glideslope_reward
                 
                 # NEW: Small reward for fuel efficiency
-                reward += 0.01 * airplane.fuel_remaining_pct
+                fuel_efficiency_reward = 0.01 * airplane.fuel_remaining_pct
+                reward += fuel_efficiency_reward
+                reward_components["fuel_efficiency_rewards"] += fuel_efficiency_reward
 
             c += 1
 
         # NEW: Check if all aircraft are out of fuel
         if all(out_of_fuel):
             self.done = True
-            reward = -100  # Penalty for all aircraft running out of fuel
+            all_fuel_penalty = -100  # Penalty for all aircraft running out of fuel
+            reward = all_fuel_penalty
+            reward_components["fuel_penalties"] += all_fuel_penalty
             print("All aircraft are out of fuel!")
         else:
             self.done = all(dones)
 
         # Check if time limit exceeded
         if self.timesteps > self.timestep_limit:
-            reward = -200  # Negative reward for timeout
+            time_limit_penalty = -200  # Negative reward for timeout
+            reward = time_limit_penalty
+            reward_components["time_penalty"] = time_limit_penalty
             self.done = True
             print("Time limit exceeded!")
 
@@ -341,12 +385,31 @@ class AtcGym(gym.Env):
 
         # Update tracking metrics
         self._update_metrics(reward)
+        
+        # Print detailed reward breakdown
+        if self.timesteps % 20 == 0 or self.done:  # Print every 20 steps and at episode end
+            print("\n" + "="*60)
+            print(f"Step {self.timesteps} Reward Breakdown:")
+            print("-"*60)
+            for component, value in reward_components.items():
+                if abs(value) > 0.001:  # Only show non-zero components
+                    print(f"{component.replace('_', ' ').title()}: {value:.4f}")
+            print("-"*60)
+            print(f"Total Reward: {reward:.4f}")
+            print(f"Total Cumulative Reward: {self.total_reward:.4f}")
+            print("="*60 + "\n")
+        
+        # More frequent but compact reward updates
+        elif self.timesteps % 5 == 0:
+            significant_rewards = {k: v for k, v in reward_components.items() if abs(v) > 0.001}
+            components_str = " | ".join([f"{k.split('_')[0]}: {v:.2f}" for k, v in significant_rewards.items()])
+            print(f"Step {self.timesteps}: Reward = {reward:.2f} ({components_str})")
 
         # Gymnasium requires truncated flag (false in this implementation)
         truncated = False
 
         # Return the step result tuple
-        return state, reward, self.done, truncated, {"original_state": self.state}
+        return state, reward, self.done, truncated, {"original_state": self.state, "reward_components": reward_components}
 
     def _update_metrics(self, reward):
         """
@@ -378,12 +441,19 @@ class AtcGym(gym.Env):
         Returns:
             Position-based reward component
         """
-        # Reward for distance (higher when closer to FAF)
-        reward_faf = sigmoid_distance_func(d_faf, world_max_dist)
-        # Reward for alignment with approach course
-        reward_app_angle = (abs(model.relative_angle(phi_to_runway, phi_rel_to_faf)) / 180.0) ** 1.5
-        # Combine rewards with scaling factor
-        return reward_faf * reward_app_angle * 0.8
+        # Stronger reward for distance (higher when closer to FAF)
+        reward_faf = sigmoid_distance_func(d_faf, world_max_dist) ** 0.7  # More aggressive scaling
+        
+        # Calculate alignment with approach course - angle between runway heading and bearing to FAF
+        # Smaller angle = better alignment
+        angle_diff = abs(model.relative_angle(phi_to_runway, phi_rel_to_faf))
+        # Normalize to 0-1 range and invert so that smaller angles give higher rewards
+        normalized_angle = 1.0 - (angle_diff / 180.0)
+        # Apply non-linear scaling to create stronger gradient toward proper alignment
+        reward_app_angle = normalized_angle ** 1.2
+        
+        # Combine rewards with increased scaling factor
+        return reward_faf * reward_app_angle * 1.5  # Increased from 0.8 to 1.5
 
     @staticmethod
     def _reward_glideslope(h, on_gp_altitude, position_factor):
@@ -401,10 +471,22 @@ class AtcGym(gym.Env):
         Returns:
             Glideslope-based reward component
         """
-        # Reward for being close to the correct glideslope altitude
-        altitude_diff_factor = sigmoid_distance_func(abs(h - on_gp_altitude), 36000)
+        # Calculate altitude difference from ideal glidepath
+        altitude_diff = abs(h - on_gp_altitude)
+        
+        # Harsher penalties for being too low than too high (safety concern)
+        altitude_penalty_factor = 1.5 if h < on_gp_altitude else 1.0
+        
+        # Apply the penalty factor
+        weighted_diff = altitude_diff * altitude_penalty_factor
+        
+        # Convert to normalized reward (closer to glidepath = higher reward)
+        # More aggressive scaling to create stronger gradient
+        altitude_reward = sigmoid_distance_func(weighted_diff, 6000) ** 0.8
+        
         # Scale by position factor (more important when closer to approach)
-        return altitude_diff_factor * position_factor * 0.8
+        # Increased scaling factor from 0.8 to 2.0
+        return altitude_reward * position_factor * 2.0
 
     @staticmethod
     def _reward_approach_angle(phi_to_runway, phi_rel_to_faf, phi_plane, position_factor):

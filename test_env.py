@@ -115,7 +115,7 @@ def parse_args():
     parser.add_argument('--steps', type=int, default=600, help='Maximum steps per episode')
     parser.add_argument('--render-interval', type=int, default=1, 
                        help='Render every N steps (only applies in non-headless mode)')
-    parser.add_argument('--wind-scale', type=float, default=5.0,
+    parser.add_argument('--wind-scale', type=float, default=2.0,
                        help='Wind scale factor (higher = stronger winds)')
     parser.add_argument('--autopilot', action='store_true', default=True,
                        help='Enable autopilot heading correction')

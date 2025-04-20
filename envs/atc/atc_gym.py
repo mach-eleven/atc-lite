@@ -200,7 +200,7 @@ class AtcGym(gym.Env):
         
         # Load airplane image
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        airplane_path = os.path.join(script_dir, 'airplane.png')
+        airplane_path = os.path.join(script_dir, 'assets/airplane_green.png')
         try:
             self.airplane_image = pyglet.image.load(airplane_path)
             # Set the center of the image as the anchor point for proper rotation
@@ -818,9 +818,10 @@ class AtcGym(gym.Env):
             sprite.x = vector[0][0]
             sprite.y = vector[1][0]
             
-            # Rotate the sprite to match the airplane's track
-            # Need to adjust as pyglet uses different angle convention
-            sprite.rotation = -airplane.track  # Negative because pyglet rotates clockwise
+            # Rotate the sprite to match the airplane's TRACK (not heading)
+            # Since your image points up (90°), we need to adjust the angle
+            sprite_rotation = -(airplane.track - 90)  # Use track instead of phi
+            sprite.rotation = sprite_rotation
             
             # Color the sprite based on fuel level
             if airplane.fuel_remaining_pct > 66:

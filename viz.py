@@ -28,18 +28,47 @@ def parse_args():
     return parser.parse_args()
 
 def load_run_data(log_path):
-    """Load training data from a log file."""
+    """Load training data from a log file, skipping bad rows (e.g., repeated headers)."""
     try:
-        # Load from CSV file
         df = pd.read_csv(log_path)
-        # Make sure we have the required columns
-        if not all(col in df.columns for col in ['episode', 'timestep', 'reward']):
-            print(f"Warning: Log file {log_path} doesn't have required columns")
-            return None
+        # Remove rows where 'episode' is not a number
+        df = df[pd.to_numeric(df['episode'], errors='coerce').notnull()].copy()
+        df['episode'] = df['episode'].astype(int)
+        if 'timestep' in df.columns:
+            df['timestep'] = pd.to_numeric(df['timestep'], errors='coerce').fillna(0).astype(int)
+        if 'reward' in df.columns:
+            df['reward'] = pd.to_numeric(df['reward'], errors='coerce')
+        if 'total_reward' in df.columns:
+            df['total_reward'] = pd.to_numeric(df['total_reward'], errors='coerce')
+        # Also convert all reward component columns to float if present
+        for col in df.columns:
+            if col not in ['episode', 'timestep', 'reward', 'total_reward']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
     except Exception as e:
         print(f"Error loading {log_path}: {e}")
         return None
+
+def plot_reward_components(df, run_name, output_dir='visualizations', smoothing=10):
+    """Plot all individual reward components over episodes if present in the DataFrame."""
+    reward_cols = [col for col in df.columns if col not in ['episode', 'timestep', 'reward', 'total_reward']]
+    if not reward_cols:
+        print("No individual reward components found in log file.")
+        return
+    output_path = Path(output_dir) / run_name
+    output_path.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(16, 8))
+    for col in reward_cols:
+        smooth = gaussian_filter1d(df[col].values, sigma=smoothing)
+        plt.plot(df['episode'], smooth, label=col)
+    plt.title(f'Reward Components vs Episodes ({run_name})')
+    plt.xlabel('Episode')
+    plt.ylabel('Component Reward (Smoothed)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_path / f'{run_name}_reward_components.png', dpi=200)
+    print(f"Saved reward component plot to {output_path / f'{run_name}_reward_components.png'}")
 
 def create_single_run_visualizations(df, run_name, smoothing=10, output_dir='visualizations'):
     """Create comprehensive visualizations for a single training run."""
@@ -172,6 +201,8 @@ def create_single_run_visualizations(df, run_name, smoothing=10, output_dir='vis
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.savefig(output_path / f'{run_name}_learning_curve.png', dpi=200, bbox_inches='tight')
+    
+    plot_reward_components(df, run_name, output_dir=output_dir, smoothing=smoothing)
     
     return stats
 

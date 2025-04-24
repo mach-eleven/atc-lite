@@ -108,6 +108,41 @@ class AtcGym(gym.Env):
 
         # Initialize environment state
         self.done = True
+
+        # Use airplane_count for normalization arrays
+        n = self._airplane_count
+        # Use typical aircraft values for normalization
+        v_min = 100
+        v_max = 300
+        h_max = 38000
+        # For derived features, use n as count
+        self.normalization_state_min = np.array([
+            *[self._world_x_min for _ in range(n)],          # Minimum x position
+            *[self._world_y_min for _ in range(n)],          # Minimum y position
+            *[0 for _ in range(n)],                          # Minimum altitude
+            *[0 for _ in range(n)],                          # Minimum heading
+            *[v_min for _ in range(n)],                      # Minimum speed
+            *[0 for _ in range(n)],                          # Minimum height above MVA
+            *[0 for _ in range(n)],                          # Minimum on-glidepath altitude
+            *[0 for _ in range(n)],                          # Minimum distance to FAF
+            *[-180 for _ in range(n)],                       # Minimum relative angle to FAF
+            *[-180 for _ in range(n)],                       # Minimum relative angle to runway
+            *[0 for _ in range(n)]                           # Minimum fuel percentage
+        ], dtype=np.float32)
+        self.normalization_state_max = np.array([
+            *[self._world_x_max - self._world_x_min for _ in range(n)],          # x position range
+            *[self._world_y_max - self._world_y_min for _ in range(n)],          # y position range
+            *[h_max for _ in range(n)],   # maximum altitude
+            *[360 for _ in range(n)],     # heading range
+            *[v_max for _ in range(n)],   # maximum speed (FIXED)
+            *[h_max for _ in range(n)],                        # maximum height above MVA
+            *[h_max for _ in range(n)],                        # maximum on glidepath altitude
+            *[self._world_max_distance for _ in range(n)],     # maximum distance to FAF
+            *[360 for _ in range(n)],                          # maximum relative angle to FAF
+            *[360 for _ in range(n)],                          # maximum relative angle to runway
+            *[100 for _ in range(n)]                           # maximum fuel percentage
+        ], dtype=np.float32)
+        
         self.reset()
         self.viewer = None
 
@@ -148,36 +183,6 @@ class AtcGym(gym.Env):
         self._action_discriminator = [5, 50, 0.5]  # For speed, altitude, heading
         self.last_action = [0, 0, 0]*len(self._airplanes)
 
-        # Define the observation space normalization parameters
-        self.normalization_state_min = np.array([
-            *[self._world_x_min for _ in self._airplanes],          # Minimum x position
-            *[self._world_y_min for _ in self._airplanes],          # Minimum y position
-            *[0 for _ in self._airplanes],                          # Minimum altitude
-            *[0 for _ in self._airplanes],                          # Minimum heading
-            *[airplane.v_min for airplane in self._airplanes],       # Minimum speed
-            *[0 for _ in self._airplanes],                          # Minimum height above MVA
-            *[0 for _ in self._on_gp_altitudes],                          # Minimum on-glidepath altitude
-            *[0 for _ in self._d_fafs],                          # Minimum distance to FAF
-            *[-180 for _ in self._phi_rel_fafs],                       # Minimum relative angle to FAF
-            *[-180 for _ in self._phi_rel_runways],                        # Minimum relative angle to runway
-            *[0 for _ in self._airplanes]                           # NEW: Minimum fuel percentage
-        ], dtype=np.float32)
-
-
-        self.normalization_state_max = np.array([
-            *[world_x_length for _ in self._airplanes],          # x position range in nautical miles
-            *[world_y_length for _ in self._airplanes],          # y position range in nautical miles
-            *[airplane.h_max for airplane in self._airplanes],   # maximum altitude range in feet
-            *[360 for _ in self._airplanes],                     # heading range in degrees
-            *[airplane.v_max - airplane.v_min for airplane in self._airplanes],       # speed range in knots
-            *[airplane.h_max for airplane in self._airplanes],                        # maximum height above MVA in feet
-            *[airplane.h_max for airplane in self._airplanes],                  # maximum on glidepath altitude in feet
-            *[self._world_max_distance for _ in self._d_fafs],                        # maximum distance to FAF in nautical miles
-            *[360 for _ in self._phi_rel_fafs],                   # maximum relative angle to FAF in degrees
-            *[360 for _ in self._phi_rel_runways],                 # maximum relative angle to runway in degrees
-            *[100 for _ in self._airplanes]                     # NEW: Maximum fuel percentage
-        ], dtype=np.float32)
-        
         # Define the observation space: x, y, h, phi, v, h-mva, on_gp, d_faf, phi_rel_faf, phi_rel_runway, fuel
         # All values normalized to [-1, 1]
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(len(self.normalization_state_min),))
@@ -225,7 +230,7 @@ class AtcGym(gym.Env):
         self.timesteps += 1
         self.done = False
         # Small negative reward per timestep to encourage efficiency
-        time_penalty = -0.05 * self._sim_parameters.timestep
+        time_penalty = -0.5 * self._sim_parameters.timestep  # Scaled up for normalization
         reward = time_penalty
         
         # Dictionary to track reward components for logging
@@ -238,16 +243,19 @@ class AtcGym(gym.Env):
             "success_rewards": 0,
             "approach_position_rewards": 0,
             "approach_angle_rewards": 0,
-            "glideslope_rewards": 0,
             "fuel_efficiency_rewards": 0
         }
 
         dones = [False] * len(self._airplanes)
         out_of_fuel = [False] * len(self._airplanes)
         
+        prev_d_fafs = list(self._d_fafs) if hasattr(self, '_d_fafs') else [None]*len(self._airplanes)
+        
         # Apply each action component and accumulate rewards
         c = 0
         for airplane in self._airplanes:
+            # Store previous position for corridor crossing check
+            prev_x, prev_y, prev_h, prev_phi = airplane.x, airplane.y, airplane.h, airplane.phi
             action = action_array[c * 3: (c + 1) * 3] # for airplane 0: 0-2, for airplane 1: 3-5
             last_action = self.last_action[c * 3: (c + 1) * 3]
 
@@ -295,8 +303,8 @@ class AtcGym(gym.Env):
                 if airplane.h < mva:
                     # Airplane has descended below minimum safe altitude - failure
                     self._win_buffer.append(0)
-                    mva_penalty = -200
-                    reward = mva_penalty  # Large negative reward
+                    mva_penalty = -50  # Scaled down for normalization
+                    reward = mva_penalty
                     reward_components["mva_penalties"] += mva_penalty
                     dones[c] = True
                     print(f"Aircraft {airplane.name} has descended below MVA!")
@@ -304,62 +312,99 @@ class AtcGym(gym.Env):
                 # Airplane has left the defined airspace - failure
                 self._win_buffer.append(0)
                 dones[c] = True
-                airspace_penalty = -50  # Negative reward
+                airspace_penalty = -100  # Scaled down for normalization
                 reward = airspace_penalty
                 reward_components["airspace_penalties"] += airspace_penalty
                 mva = 0  # Dummy MVA value for the final state
                 print(f"Aircraft {airplane.name} has left the airspace!")
 
             # Check if airplane has successfully reached the final approach corridor
-            if self._runway.inside_corridor(airplane.x, airplane.y, airplane.h, airplane.phi):
-                # GAME WON! Aircraft successfully guided to final approach
+            # --- SIMPLIFIED SUCCESS: Only require entering the approach corridor (ignore heading/altitude) ---
+            prev_in_corridor = self._runway.corridor.corridor_horizontal.contains(
+                model.geom.Point(prev_x, prev_y))
+            curr_in_corridor = self._runway.corridor.corridor_horizontal.contains(
+                model.geom.Point(airplane.x, airplane.y))
+            if (not prev_in_corridor) and curr_in_corridor:
                 self._win_buffer.append(1)
-                # Large positive reward plus bonus for finishing quickly and fuel efficiency
-                fuel_bonus = airplane.fuel_remaining_pct / 10  # Up to 10 points for fuel efficiency
-                time_bonus = max((self.timestep_limit - self.timesteps) * 5, 0)
-                success_reward = 10000 + time_bonus + fuel_bonus
+                fuel_bonus = airplane.fuel_remaining_pct
+                time_bonus = max((self.timestep_limit - self.timesteps) * 0.1, 0)
+                success_reward = 200 + time_bonus + 0.1 * fuel_bonus
                 reward = success_reward
                 reward_components["success_rewards"] += success_reward
                 dones[c] = True
-                print(f"Aircraft {airplane.name} has successfully reached the approach corridor!")
+                print(f"Aircraft {airplane.name} has entered the approach corridor (position only, simplified success)!")
                 print(f"  Fuel bonus: +{fuel_bonus:.2f} | Time bonus: +{time_bonus:.2f}")
 
-            # Apply additional reward shaping to guide learning
+            # --- Reward shaping: progress, alignment, circling penalty ---
             if self._sim_parameters.reward_shaping:
-                # Reward for being in a good approach position
-                app_position_reward = self._reward_approach_position(
-                    self._d_fafs[c], self._runway.phi_to_runway,
-                    self._phi_rel_fafs[c], self._world_max_distance
-                )
-                reward += app_position_reward
-                reward_components["approach_position_rewards"] += app_position_reward
-                
-                # Reward for correct approach angle
-                app_angle_reward = self._reward_approach_angle(
-                    self._runway.phi_to_runway,
-                    self._phi_rel_fafs[c], airplane.phi, app_position_reward
-                )
-                reward += app_angle_reward
-                reward_components["approach_angle_rewards"] += app_angle_reward
-                
-                # Reward for being on the correct glideslope
-                glideslope_reward = self._reward_glideslope(
-                    airplane.h, self._on_gp_altitudes[c], app_position_reward
-                )
-                reward += glideslope_reward
-                reward_components["glideslope_rewards"] += glideslope_reward
-                
-                # NEW: Small reward for fuel efficiency
-                fuel_efficiency_reward = 0.01 * airplane.fuel_remaining_pct
-                reward += fuel_efficiency_reward
-                reward_components["fuel_efficiency_rewards"] += fuel_efficiency_reward
+                prev_d_faf = prev_d_fafs[c]
+                to_faf_x = self._runway.corridor.faf[0][0] - airplane.x
+                to_faf_y = self._runway.corridor.faf[1][0] - airplane.y
+                new_d_faf = np.hypot(to_faf_x, to_faf_y)
+                delta = 0  # Fix: always define delta
+                if prev_d_faf is not None:
+                    delta = prev_d_faf - new_d_faf
+                # --- Denser shaping: progress reward for reducing distance to runway ---
+                progress_reward = 0.05 * max(0, delta)  # Positive for progress, zero otherwise
+                reward += progress_reward
+                reward_components["approach_position_rewards"] += progress_reward
+                # --- Increased approach position reward weight ---
+                approach_reward = 2.0 / (1.0 + np.exp(0.5 * (new_d_faf - 5)))
+                reward += approach_reward
+                reward_components["approach_position_rewards"] += approach_reward
+                # Remove or reduce far_penalty when close
+                if new_d_faf > 10:
+                    far_penalty = -0.005 * new_d_faf  # Scaled down
+                    reward += far_penalty
+                    reward_components["approach_position_rewards"] += far_penalty
+                # --- Slightly increase alignment reward when close ---
+                dist_to_runway = new_d_faf
+                alignment_reward = 0
+                if dist_to_runway < 10:
+                    heading_diff = abs(model.relative_angle(self._runway.phi_to_runway, airplane.phi))
+                    alignment_reward = 0.4 * (1 - heading_diff / 180.0)  # Increased from 0.2
+                    reward += alignment_reward
+                    reward_components["approach_angle_rewards"] += alignment_reward
+
+                if self.timesteps > 1:
+                    prev_heading = getattr(airplane, 'prev_phi', airplane.phi)
+                    heading_change = abs(model.relative_angle(airplane.phi, prev_heading))
+                    circling_penalty = -0.01 * heading_change  # Scaled down
+                    reward += circling_penalty
+                    reward_components["action_rewards"] += circling_penalty
+                    airplane.prev_phi = airplane.phi
+
+                # Penalty for not making progress for 10 steps
+                if hasattr(airplane, 'no_progress_steps'):
+                    if delta <= 0:
+                        airplane.no_progress_steps += 1
+                    else:
+                        airplane.no_progress_steps = 0
+                else:
+                    airplane.no_progress_steps = 0
+                if airplane.no_progress_steps >= 10:
+                    no_progress_penalty = -2.0  # Scaled down
+                    reward += no_progress_penalty
+                    reward_components["approach_position_rewards"] += no_progress_penalty
+                    airplane.no_progress_steps = 0
 
             c += 1
+
+        # If any aircraft reaches the approach corridor, terminate the episode immediately
+        if any(dones):
+            self.done = True
+            # Return early to avoid overwriting self.done
+            state = self._get_obs(mva)
+            if self._sim_parameters.normalize_state:
+                state = 2 * (state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
+            self._update_metrics(reward)
+            truncated = False
+            return state, reward, self.done, truncated, {"original_state": self.state, "reward_components": reward_components}
 
         # NEW: Check if all aircraft are out of fuel
         if all(out_of_fuel):
             self.done = True
-            all_fuel_penalty = -100  # Penalty for all aircraft running out of fuel
+            all_fuel_penalty = -50  # was -100
             reward = all_fuel_penalty
             reward_components["fuel_penalties"] += all_fuel_penalty
             print("All aircraft are out of fuel!")
@@ -368,7 +413,7 @@ class AtcGym(gym.Env):
 
         # Check if time limit exceeded
         if self.timesteps > self.timestep_limit:
-            time_limit_penalty = -200  # Negative reward for timeout
+            time_limit_penalty = -500  # Stronger penalty
             reward = time_limit_penalty
             reward_components["time_penalty"] = time_limit_penalty
             self.done = True
@@ -380,8 +425,8 @@ class AtcGym(gym.Env):
 
         # Normalize state if configured to do so
         if self._sim_parameters.normalize_state:
-            state = (state - self.normalization_state_min - 0.5 * self.normalization_state_max) \
-                    / (0.5 * self.normalization_state_max)
+            # Correct normalization to [-1, 1]
+            state = 2 * (state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
 
         # Update tracking metrics
         self._update_metrics(reward)
@@ -1206,6 +1251,14 @@ class AtcGym(gym.Env):
             """
             self.done = False
 
+            # Set random seed for deterministic reset
+            if seed is not None:
+                np.random.seed(seed)
+                random.seed(seed)
+            else:
+                np.random.seed(42)
+                random.seed(42)
+
             # Calculate the center of the airspace for a safer starting position
             center_x = (self._world_x_min + self._world_x_max) / 2
             center_y = (self._world_y_min + self._world_y_max) / 2
@@ -1222,24 +1275,18 @@ class AtcGym(gym.Env):
             while len(available_entrypoints) < self._airplane_count:
                 available_entrypoints.extend(self._scenario.entrypoints)
             
-            # Make sure each aircraft starts at a different entry point
-            # by shuffling the list and taking the first _airplane_count entries
-            random.shuffle(available_entrypoints)
-            selected_entrypoints = available_entrypoints[:self._airplane_count]
+            # Always use the first entry point and first altitude for each aircraft for deterministic start
+            selected_entrypoints = self._scenario.entrypoints[:self._airplane_count]
 
             for i in range(self._airplane_count):
                 # Use a different entry point for each aircraft
                 entry_point = selected_entrypoints[i]
                 
-                # Instead of placing the airplane 25% of the way from center to entry point,
-                # place it much closer to the entry point (90%) for better spacing
-                x = center_x + 0.9 * (entry_point.x - center_x)
-                y = center_y + 0.9 * (entry_point.y - center_y)
-                
-                # Add some random perturbation for increased separation
-                # This will move each aircraft randomly in a small area around its starting point
-                x += random.uniform(-5, 5)
-                y += random.uniform(-5, 5)
+                # Place the airplane exactly at the entry point (no randomization)
+                x = entry_point.x
+                y = entry_point.y
+                altitude = entry_point.levels[0] * 100  # Always use the first altitude
+                phi = entry_point.phi
                 
                 # Create new airplane instances for the simulation
                 self._airplanes.append(
@@ -1247,8 +1294,8 @@ class AtcGym(gym.Env):
                         self._sim_parameters,
                         f"FLT{i+1:03}",                                    # Flight identifier
                         x, y,                                       # Position
-                        random.choice(entry_point.levels) * 100,    # Altitude
-                        entry_point.phi,                            # Heading
+                        altitude,                                    # Altitude
+                        phi,                            # Heading
                         250                                         # Initial speed
                     )
                 )
@@ -1261,6 +1308,9 @@ class AtcGym(gym.Env):
                 
             # Reset state and tracking variables
             self.state = self._get_obs(0)
+            # Normalize state if configured to do so
+            if self._sim_parameters.normalize_state:
+                self.state = 2 * (self.state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
             self.total_reward = 0
             self.last_reward = 0
             self._actions_ignoring_resets += self.actions_taken

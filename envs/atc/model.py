@@ -607,15 +607,14 @@ class Airspace:
         raise ValueError('Outside of airspace')
 
     def get_mva_height(self, x, y):
-        """
-        Gets the minimum safe altitude for a given position.
-        
-        :param x: X-coordinate to check
-        :param y: Y-coordinate to check
-        :return: Minimum vectoring altitude in feet
-        :raises ValueError: If coordinates are outside all defined MVA areas
-        """
-        return self.find_mva(x, y).height
+        point = geom.Point(x, y)
+        for mva in self.mvas:
+            # Debug print for inclusion check
+            inside = mva.area.covers(point)
+            print(f"[DEBUG] Checking point ({x}, {y}) in MVA with height {mva.height}: inside={inside}")
+            if inside:
+                return mva.height
+        raise ValueError(f"Point ({x}, {y}) is outside the defined airspace!")
 
     def get_bounding_box(self):
         """

@@ -1,0 +1,11 @@
+{
+    "run_name": "run_1",
+    "total_episodes": 370,
+    "total_timesteps": 100001,
+    "mean_reward": 13384.429622565323,
+    "std_reward": 5516.074519814887,
+    "min_reward": 30.0121,
+    "max_reward": 31026.107,
+    "last_10pct_mean": 10352.06162857143,
+    "generated_at": "2025-04-23T16:42:20.661946"
+}

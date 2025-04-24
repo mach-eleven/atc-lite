@@ -2,6 +2,7 @@
 from math import ceil
 import shapely.geometry as shape  # For geometric operations and polygon definitions
 from typing import List  # For type hinting
+import numpy as np
 
 # Import the model module which contains class definitions for airspace components
 from . import model
@@ -38,6 +39,10 @@ class SimpleScenario(Scenario):
         
         :param random_entrypoints: Flag to enable random entry points (not implemented in this class)
         """
+        # Set random seed for deterministic entry points
+        random.seed(42)
+        np.random.seed(42)
+        
         # Create five minimum vectoring altitude regions with different height restrictions
         # Each MVA is defined by a polygon (coordinates in nautical miles) and a minimum altitude (in feet)
         
@@ -335,3 +340,53 @@ class LOWW(Scenario):
             aircraft.append(Aircraft(f"FLT{i+1:03d}", x, y, altitude, heading))
         
         return aircraft
+
+class SimpleTrainingScenario(Scenario):
+    """
+    A very simple scenario for RL training: single runway, flat terrain, no wind, large airspace.
+    """
+    def __init__(self):
+        super().__init__()
+        # Add multiple MVAs for realism
+        self.mvas = [
+            model.MinimumVectoringAltitude(
+                shape.Polygon([(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]), 3000
+            ),
+            model.MinimumVectoringAltitude(
+                shape.Polygon([(20, 0), (40, 0), (40, 20), (20, 20), (20, 0)]), 4000
+            ),
+            model.MinimumVectoringAltitude(
+                shape.Polygon([(0, 20), (20, 20), (20, 40), (0, 40), (0, 20)]), 3500
+            ),
+            model.MinimumVectoringAltitude(
+                shape.Polygon([(20, 20), (40, 20), (40, 40), (20, 40), (20, 20)]), 2500
+            )
+        ]
+        # Simple runway in the center
+        self.runway = model.Runway(20, 20, 0, 90)
+        self.airspace = model.Airspace(self.mvas, self.runway)
+        self.wind = model.Wind((0, 40, 0, 40), swirl_scale=0.0)
+        # Start well away from the runway, in the lower left quadrant, heading toward the runway
+        self.entrypoints = [model.EntryPoint(5, 5, 45, [150])]
+
+class CurriculumTrainingScenario(Scenario):
+    def __init__(self, entry_xy=(10, 10), entry_heading=45):
+        super().__init__()
+        self.mvas = [
+            model.MinimumVectoringAltitude(
+                shape.Polygon([(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]), 3000
+            ),
+            model.MinimumVectoringAltitude(
+                shape.Polygon([(20, 0), (40, 0), (40, 20), (20, 20), (20, 0)]), 4000
+            ),
+            model.MinimumVectoringAltitude(
+                shape.Polygon([(0, 20), (20, 20), (20, 40), (0, 40), (0, 20)]), 3500
+            ),
+            model.MinimumVectoringAltitude(
+                shape.Polygon([(20, 20), (40, 20), (40, 40), (20, 40), (20, 20)]), 2500
+            )
+        ]
+        self.runway = model.Runway(20, 20, 0, 90)
+        self.airspace = model.Airspace(self.mvas, self.runway)
+        self.wind = model.Wind((0, 40, 0, 40), swirl_scale=0.0)
+        self.entrypoints = [model.EntryPoint(entry_xy[0], entry_xy[1], entry_heading, [150])]

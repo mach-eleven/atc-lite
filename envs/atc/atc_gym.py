@@ -198,17 +198,23 @@ class AtcGym(gym.Env):
         ]
         self.max_trail_length = 500  # Maximum number of history points to render
         
-        # Load airplane image
+        # Load airplane images in different colors to match trajectory colors
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        airplane_path = os.path.join(script_dir, 'assets/airplane_green.png')
+        
+        # Base airplane image path
+        airplane_path = os.path.join(script_dir, 'assets', 'airplane_green.png')
         try:
+            # Try to load the image directly
             self.airplane_image = pyglet.image.load(airplane_path)
-            # Set the center of the image as the anchor point for proper rotation
+            
+            # Set the anchor point for proper rotation
             self.airplane_image.anchor_x = self.airplane_image.width // 2
             self.airplane_image.anchor_y = self.airplane_image.height // 2
-            self.use_airplane_image = True  # Enable airplane image rendering
+            
+            self.use_airplane_image = True
+            print(f"Successfully loaded airplane image from {airplane_path}")
         except Exception as e:
-            print(f"Could not load airplane image: {e}")
+            print(f"Could not load airplane image from any path. Error: {e}")
             self.use_airplane_image = False
 
     def seed(self, seed=None):
@@ -805,10 +811,20 @@ class AtcGym(gym.Env):
         # Get screen coordinates for the airplane
         vector = self._screen_vector(airplane.x, airplane.y)
         
+        # Get airplane index to determine which color to use
+        airplane_index = next((i for i, a in enumerate(self._airplanes) if a is airplane), 0)
+        # Use modulo to handle case where we have more airplanes than colors
+        color_index = airplane_index % len(self.trajectory_colors)
+        # Get this airplane's trajectory color
+        traj_color = self.trajectory_colors[color_index]
+        
         # If we can use the airplane image
-        if hasattr(self, 'use_airplane_image') and self.use_airplane_image:
-            # Create sprite from the image
+        if hasattr(self, 'use_airplane_image') and self.use_airplane_image and hasattr(self, 'airplane_image'):
+            # Create sprite and apply color tint to match trajectory color
             sprite = pyglet.sprite.Sprite(self.airplane_image)
+            
+            # Apply color tint to match trajectory color
+            sprite.color = traj_color
             
             # Scale the sprite (adjust this value to change size)
             scale_factor = 0.15
@@ -818,18 +834,9 @@ class AtcGym(gym.Env):
             sprite.x = vector[0][0]
             sprite.y = vector[1][0]
             
-            # Rotate the sprite to match the airplane's TRACK (not heading)
-            # FIXED: Direct match with the arrow direction
+            # Rotate the sprite to match the airplane's TRACK 
             sprite_rotation = airplane.track
             sprite.rotation = sprite_rotation
-            
-            # Color the sprite based on fuel level
-            if airplane.fuel_remaining_pct > 66:
-                sprite.color = (255, 255, 255)  # White for good fuel
-            elif airplane.fuel_remaining_pct > 33:
-                sprite.color = (255, 255, 0)    # Yellow for medium fuel
-            else:
-                sprite.color = (255, 100, 100)  # Red for low fuel
             
             # Draw the sprite
             self.viewer.add_onetime_sprite(sprite)
@@ -841,7 +848,7 @@ class AtcGym(gym.Env):
             corner_bottom_right = np.dot(model.rot_matrix(135), corner_vector) + vector
             corner_bottom_left = np.dot(model.rot_matrix(225), corner_vector) + vector
             corner_top_left = np.dot(model.rot_matrix(315), corner_vector) + vector
-
+            
             symbol = rendering.PolyLine([
                 (corner_top_right[0][0], corner_top_right[1][0]),
                 (corner_bottom_right[0][0], corner_bottom_right[1][0]),
@@ -849,12 +856,8 @@ class AtcGym(gym.Env):
                 (corner_top_left[0][0], corner_top_left[1][0])
             ], True, linewidth=4)
             
-            if airplane.fuel_remaining_pct > 66:
-                symbol.set_color(255, 255, 255)
-            elif airplane.fuel_remaining_pct > 33:
-                symbol.set_color(255, 255, 0)
-            else:
-                symbol.set_color(255, 0, 0)
+            # Set color to match trajectory color
+            symbol.set_color(traj_color[0], traj_color[1], traj_color[2])
                 
             self.viewer.add_onetime(symbol)
 
@@ -865,12 +868,8 @@ class AtcGym(gym.Env):
                 (corner_top_left[0][0], corner_top_left[1][0])
             ])
             
-            if airplane.fuel_remaining_pct > 66:
-                filled_symbol.set_color_opacity(200, 200, 255, 150)
-            elif airplane.fuel_remaining_pct > 33:
-                filled_symbol.set_color_opacity(255, 255, 150, 150)
-            else:
-                filled_symbol.set_color_opacity(255, 150, 150, 150)
+            # Set fill color to match trajectory color but with some transparency
+            filled_symbol.set_color_opacity(traj_color[0], traj_color[1], traj_color[2], 150)
                 
             self.viewer.add_onetime(filled_symbol)
 
@@ -879,7 +878,7 @@ class AtcGym(gym.Env):
             symbol.add_attr(aircraft_symbol_transform)
             filled_symbol.add_attr(aircraft_symbol_transform)
 
-        # Add track arrow (green) to show actual direction of movement
+        # Add track arrow to show actual direction of movement
         track_arrow_length = 12 * 6  # Long arrow
         track_arrow_vector = np.array([[track_arrow_length], [0]])
         
@@ -893,7 +892,8 @@ class AtcGym(gym.Env):
             (vector[0][0] + rotated_track_arrow[0][0], vector[1][0] + rotated_track_arrow[1][0]),
             attrs={"linewidth": 3}
         )
-        track_arrow.set_color(0, 255, 0)
+        # Use trajectory color for the arrow
+        track_arrow.set_color(traj_color[0], traj_color[1], traj_color[2])
         self.viewer.add_onetime(track_arrow)
         
         # Add arrowhead to the track line
@@ -917,8 +917,9 @@ class AtcGym(gym.Env):
             (rotated_arrowhead2[0][0], rotated_arrowhead2[1][0]),
             attrs={"linewidth": 3}
         )
-        arrowhead1.set_color(0, 255, 0)
-        arrowhead2.set_color(0, 255, 0)
+        # Use trajectory color for arrowheads as well
+        arrowhead1.set_color(traj_color[0], traj_color[1], traj_color[2])
+        arrowhead2.set_color(traj_color[0], traj_color[1], traj_color[2])
         self.viewer.add_onetime(arrowhead1)
         self.viewer.add_onetime(arrowhead2)
         
@@ -941,7 +942,7 @@ class AtcGym(gym.Env):
                 (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),
                 attrs={"linewidth": 2}
             )
-            heading_arrow.set_color(50, 50, 255)
+            heading_arrow.set_color(50, 50, 255)  # Keep heading arrow blue for visibility
             self.viewer.add_onetime(heading_arrow)
             
             # Add blue arrowhead to heading arrow
@@ -965,8 +966,8 @@ class AtcGym(gym.Env):
                 (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
                 attrs={"linewidth": 2}
             )
-            heading_arrowhead1.set_color(50, 50, 255)
-            heading_arrowhead2.set_color(50, 50, 255)
+            heading_arrowhead1.set_color(50, 50, 255)  # Keep heading arrow blue
+            heading_arrowhead2.set_color(50, 50, 255)  # Keep heading arrow blue
             self.viewer.add_onetime(heading_arrowhead1)
             self.viewer.add_onetime(heading_arrowhead2)
 

@@ -206,7 +206,7 @@ class AtcGym(gym.Env):
             # Set the center of the image as the anchor point for proper rotation
             self.airplane_image.anchor_x = self.airplane_image.width // 2
             self.airplane_image.anchor_y = self.airplane_image.height // 2
-            self.use_airplane_image = True
+            self.use_airplane_image = True  # Enable airplane image rendering
         except Exception as e:
             print(f"Could not load airplane image: {e}")
             self.use_airplane_image = False
@@ -819,8 +819,8 @@ class AtcGym(gym.Env):
             sprite.y = vector[1][0]
             
             # Rotate the sprite to match the airplane's TRACK (not heading)
-            # Since your image points up (90°), we need to adjust the angle
-            sprite_rotation = -(airplane.track - 90)  # Use track instead of phi
+            # FIXED: Direct match with the arrow direction
+            sprite_rotation = airplane.track
             sprite.rotation = sprite_rotation
             
             # Color the sprite based on fuel level
@@ -882,7 +882,12 @@ class AtcGym(gym.Env):
         # Add track arrow (green) to show actual direction of movement
         track_arrow_length = 12 * 6  # Long arrow
         track_arrow_vector = np.array([[track_arrow_length], [0]])
-        rotated_track_arrow = np.dot(model.rot_matrix(airplane.track), track_arrow_vector)
+        
+        # Use the airplane's track angle to rotate the vector correctly
+        # Apply -90 degree adjustment to align with the airplane image
+        adjusted_track_angle = airplane.track - 90
+        rotated_track_arrow = np.dot(model.rot_matrix(adjusted_track_angle), track_arrow_vector)
+        
         track_arrow = rendering.Line(
             (vector[0][0], vector[1][0]),
             (vector[0][0] + rotated_track_arrow[0][0], vector[1][0] + rotated_track_arrow[1][0]),
@@ -898,8 +903,9 @@ class AtcGym(gym.Env):
         
         arrowhead_pos = vector + rotated_track_arrow
         
-        rotated_arrowhead1 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector1) + arrowhead_pos
-        rotated_arrowhead2 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector2) + arrowhead_pos
+        # Use the same adjusted track angle for the arrowhead rotation
+        rotated_arrowhead1 = np.dot(model.rot_matrix(adjusted_track_angle), arrowhead_vector1) + arrowhead_pos
+        rotated_arrowhead2 = np.dot(model.rot_matrix(adjusted_track_angle), arrowhead_vector2) + arrowhead_pos
         
         arrowhead1 = rendering.Line(
             (arrowhead_pos[0][0], arrowhead_pos[1][0]),
@@ -925,7 +931,11 @@ class AtcGym(gym.Env):
             # Add heading arrow (blue) to show the direction the nose is pointing
             heading_arrow_length = 12 * 5
             heading_arrow_vector = np.array([[heading_arrow_length], [0]])
-            rotated_heading_arrow = np.dot(model.rot_matrix(airplane.phi), heading_arrow_vector)
+            
+            # Apply -90 degree adjustment to the heading arrow as well
+            adjusted_heading_angle = airplane.phi - 90
+            rotated_heading_arrow = np.dot(model.rot_matrix(adjusted_heading_angle), heading_arrow_vector)
+            
             heading_arrow = rendering.Line(
                 (vector[0][0], vector[1][0]),
                 (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),
@@ -941,8 +951,9 @@ class AtcGym(gym.Env):
             
             heading_arrowhead_pos = vector + rotated_heading_arrow
             
-            rotated_heading_arrowhead1 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector1) + heading_arrowhead_pos
-            rotated_heading_arrowhead2 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector2) + heading_arrowhead_pos
+            # Use the adjusted heading angle for the arrowheads too
+            rotated_heading_arrowhead1 = np.dot(model.rot_matrix(adjusted_heading_angle), heading_arrowhead_vector1) + heading_arrowhead_pos
+            rotated_heading_arrowhead2 = np.dot(model.rot_matrix(adjusted_heading_angle), heading_arrowhead_vector2) + heading_arrowhead_pos
             
             heading_arrowhead1 = rendering.Line(
                 (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),

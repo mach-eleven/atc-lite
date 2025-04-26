@@ -78,8 +78,6 @@ if __name__ == '__main__':
         ((5, 5), 180),    # NW, off-axis
         ((0, 0), 180),     # Farthest corner, NE
         ((0, 0), 160),     # Farthest corner, NE
-
-        
     ]
 
     reward_keys = [
@@ -104,7 +102,7 @@ if __name__ == '__main__':
         env = AtcGym(
             airplane_count=1,
             sim_parameters=model.SimParameters(1.0, discrete_action_space=False, normalize_state=True),
-            scenario=scenarios.CurriculumTrainingScenario(entry_xy, entry_heading),
+            scenario=scenarios.SupaSupa(),
             render_mode='headless'
         )
         check_env(env, warn=True)

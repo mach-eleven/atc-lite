@@ -67,7 +67,7 @@ def main():
         env = AtcGym(
             airplane_count=1,
             sim_parameters=model.SimParameters(1.0, discrete_action_space=False, normalize_state=True),
-            scenario=scenarios.CurriculumTrainingScenario(entry_xy, entry_heading),
+            scenario=scenarios.SupaSupa(),
             render_mode='human'
         )
         model_ = PPO.load(model_path)

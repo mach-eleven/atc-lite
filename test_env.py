@@ -4,7 +4,7 @@ import time
 import os
 import argparse
 
-from envs.atc.scenarios import LOWW, SupaSupa, SupaSupaOld, SuperSimple
+from envs.atc.scenarios import LOWW, SupaSupa, SuperSimple
 
 # Set Pyglet configurations for macOS
 os.environ['PYGLET_SHADOW_WINDOW'] = '0'

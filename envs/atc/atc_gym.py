@@ -744,7 +744,7 @@ class AtcGym(gym.Env):
         track_arrow_length = render_size * 12  # Very long arrow
         track_arrow_vector = np.array([[track_arrow_length], [0]])  # Start with horizontal vector
         # Rotate arrow by airplane track
-        rotated_track_arrow = np.dot(model.rot_matrix(airplane.track), track_arrow_vector)
+        rotated_track_arrow = np.dot(model.rot_matrix(airplane.track - self._runway.phi_orig), track_arrow_vector)
         # Draw arrow from center of diamond using attrs for linewidth
         track_arrow = rendering.Line(
             (vector[0][0], vector[1][0]),  # Start at diamond center
@@ -755,77 +755,77 @@ class AtcGym(gym.Env):
         track_arrow.set_color(0, 255, 0)  # Bright green for track
         self.viewer.add_onetime(track_arrow)
         
-        # Add large arrowhead to the track line
-        arrowhead_size = render_size * 2.5  # MUCH LARGER arrowhead
-        arrowhead_vector1 = np.array([[-arrowhead_size], [-arrowhead_size]])
-        arrowhead_vector2 = np.array([[-arrowhead_size], [arrowhead_size]])
+        # # Add large arrowhead to the track line
+        # arrowhead_size = render_size * 2.5  # MUCH LARGER arrowhead
+        # arrowhead_vector1 = np.array([[-arrowhead_size], [-arrowhead_size]])
+        # arrowhead_vector2 = np.array([[-arrowhead_size], [arrowhead_size]])
         
-        # Position arrowhead at the end of the track arrow
-        arrowhead_pos = vector + rotated_track_arrow
+        # # Position arrowhead at the end of the track arrow
+        # arrowhead_pos = vector + rotated_track_arrow
         
-        # Rotate arrowhead to match track direction
-        rotated_arrowhead1 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector1) + arrowhead_pos
-        rotated_arrowhead2 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector2) + arrowhead_pos
+        # # Rotate arrowhead to match track direction
+        # rotated_arrowhead1 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector1) + arrowhead_pos
+        # rotated_arrowhead2 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector2) + arrowhead_pos
         
-        # Draw arrowhead with linewidth in attrs
-        arrowhead1 = rendering.Line(
-            (arrowhead_pos[0][0], arrowhead_pos[1][0]),
-            (rotated_arrowhead1[0][0], rotated_arrowhead1[1][0]),
-            attrs={"linewidth": 3}
-        )
-        arrowhead2 = rendering.Line(
-            (arrowhead_pos[0][0], arrowhead_pos[1][0]),
-            (rotated_arrowhead2[0][0], rotated_arrowhead2[1][0]),
-            attrs={"linewidth": 3}
-        )
-        arrowhead1.set_color(0, 255, 0)  # Bright green
-        arrowhead2.set_color(0, 255, 0)  # Bright green
-        self.viewer.add_onetime(arrowhead1)
-        self.viewer.add_onetime(arrowhead2)
+        # # Draw arrowhead with linewidth in attrs
+        # arrowhead1 = rendering.Line(
+        #     (arrowhead_pos[0][0], arrowhead_pos[1][0]),
+        #     (rotated_arrowhead1[0][0], rotated_arrowhead1[1][0]),
+        #     attrs={"linewidth": 3}
+        # )
+        # arrowhead2 = rendering.Line(
+        #     (arrowhead_pos[0][0], arrowhead_pos[1][0]),
+        #     (rotated_arrowhead2[0][0], rotated_arrowhead2[1][0]),
+        #     attrs={"linewidth": 3}
+        # )
+        # arrowhead1.set_color(0, 255, 0)  # Bright green
+        # arrowhead2.set_color(0, 255, 0)  # Bright green
+        # self.viewer.add_onetime(arrowhead1)
+        # self.viewer.add_onetime(arrowhead2)
         
-        # Add heading arrow (blue) to show the direction the nose is pointing
-        # LONGER and THICKER arrow
-        heading_arrow_length = render_size * 10  # Longer arrow
-        heading_arrow_vector = np.array([[heading_arrow_length], [0]])  # Start with horizontal vector
-        # Rotate arrow by airplane heading
-        rotated_heading_arrow = np.dot(model.rot_matrix(airplane.phi), heading_arrow_vector)
-        # Draw arrow from center of diamond
-        heading_arrow = rendering.Line(
-            (vector[0][0], vector[1][0]),  # Start at diamond center
-            (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),  # End at rotated point
-            attrs={"linewidth": 3}  # Using attrs parameter for linewidth
-        )
-        # BRIGHTER blue
-        heading_arrow.set_color(50, 50, 255)  # Bright blue for heading
-        self.viewer.add_onetime(heading_arrow)
+        # # Add heading arrow (blue) to show the direction the nose is pointing
+        # # LONGER and THICKER arrow
+        # heading_arrow_length = render_size * 10  # Longer arrow
+        # heading_arrow_vector = np.array([[heading_arrow_length], [0]])  # Start with horizontal vector
+        # # Rotate arrow by airplane heading
+        # rotated_heading_arrow = np.dot(model.rot_matrix(airplane.phi), heading_arrow_vector)
+        # # Draw arrow from center of diamond
+        # heading_arrow = rendering.Line(
+        #     (vector[0][0], vector[1][0]),  # Start at diamond center
+        #     (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),  # End at rotated point
+        #     attrs={"linewidth": 3}  # Using attrs parameter for linewidth
+        # )
+        # # BRIGHTER blue
+        # heading_arrow.set_color(50, 50, 255)  # Bright blue for heading
+        # self.viewer.add_onetime(heading_arrow)
         
-        # Add blue arrowhead to heading arrow
-        heading_arrowhead_size = render_size * 2  # Large arrowhead
-        heading_arrowhead_vector1 = np.array([[-heading_arrowhead_size], [-heading_arrowhead_size]])
-        heading_arrowhead_vector2 = np.array([[-heading_arrowhead_size], [heading_arrowhead_size]])
+        # # Add blue arrowhead to heading arrow
+        # heading_arrowhead_size = render_size * 2  # Large arrowhead
+        # heading_arrowhead_vector1 = np.array([[-heading_arrowhead_size], [-heading_arrowhead_size]])
+        # heading_arrowhead_vector2 = np.array([[-heading_arrowhead_size], [heading_arrowhead_size]])
         
-        # Position arrowhead at the end of the heading arrow
-        heading_arrowhead_pos = vector + rotated_heading_arrow
+        # # Position arrowhead at the end of the heading arrow
+        # heading_arrowhead_pos = vector + rotated_heading_arrow
         
-        # Rotate arrowhead to match heading direction
-        rotated_heading_arrowhead1 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector1) + heading_arrowhead_pos
-        rotated_heading_arrowhead2 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector2) + heading_arrowhead_pos
+        # # Rotate arrowhead to match heading direction
+        # rotated_heading_arrowhead1 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector1) + heading_arrowhead_pos
+        # rotated_heading_arrowhead2 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector2) + heading_arrowhead_pos
         
-        # Draw THICKER heading arrowhead with attrs
-        heading_arrowhead1 = rendering.Line(
-            (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
-            (rotated_heading_arrowhead1[0][0], rotated_heading_arrowhead1[1][0]),
-            attrs={"linewidth": 2}
-        )
-        heading_arrowhead2 = rendering.Line(
-            (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
-            (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
-            attrs={"linewidth": 2}
-        )
-        heading_arrowhead1.set_color(50, 50, 255)  # Bright blue
-        heading_arrowhead2.set_color(50, 50, 255)  # Bright blue
-        self.viewer.add_onetime(heading_arrowhead1)
-        self.viewer.add_onetime(heading_arrowhead2)
+        # # Draw THICKER heading arrowhead with attrs
+        # heading_arrowhead1 = rendering.Line(
+        #     (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
+        #     (rotated_heading_arrowhead1[0][0], rotated_heading_arrowhead1[1][0]),
+        #     attrs={"linewidth": 2}
+        # )
+        # heading_arrowhead2 = rendering.Line(
+        #     (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
+        #     (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
+        #     attrs={"linewidth": 2}
+        # )
+        # heading_arrowhead1.set_color(50, 50, 255)  # Bright blue
+        # heading_arrowhead2.set_color(50, 50, 255)  # Bright blue
+        # self.viewer.add_onetime(heading_arrowhead1)
+        # self.viewer.add_onetime(heading_arrowhead2)
 
         # Create labels with aircraft information
         label_pos = np.dot(model.rot_matrix(135), 2.5 * corner_vector) + vector

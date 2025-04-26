@@ -4,7 +4,7 @@ import time
 import os
 import argparse
 
-from envs.atc.scenarios import LOWW
+from envs.atc.scenarios import LOWW, SupaSupa, SupaSupaOld, SuperSimple
 
 # Set Pyglet configurations for macOS
 os.environ['PYGLET_SHADOW_WINDOW'] = '0'
@@ -161,21 +161,21 @@ def main():
     model.Airplane.__init__ = modified_init
     
     # Create custom wind scale for the scenario
-    class CustomLOWW(LOWW):
-        def __init__(self, random_entrypoints=True, wind_scale=5.0):
-            super().__init__(random_entrypoints)
-            # Override the wind with custom scale
-            minx, miny, maxx, maxy = self.airspace.get_bounding_box()
-            self.wind = model.Wind(
-                (math.ceil(minx), math.ceil(maxx), math.ceil(miny), math.ceil(maxy)),
-                swirl_scale=wind_scale
-            )
+    # class CustomLOWW(LOWW):
+    #     def __init__(self, random_entrypoints=True, wind_scale=5.0):
+    #         super().__init__(random_entrypoints)
+    #         # Override the wind with custom scale
+    #         minx, miny, maxx, maxy = self.airspace.get_bounding_box()
+    #         self.wind = model.Wind(
+    #             (math.ceil(minx), math.ceil(maxx), math.ceil(miny), math.ceil(maxy)),
+    #             swirl_scale=wind_scale
+    #         )
     
     # Create environment with 3 aircraft for different scenarios with the specified render mode
     env = AtcGym(
-        airplane_count=3, 
+        airplane_count=1, 
         sim_parameters=sim_params, 
-        scenario=CustomLOWW(random_entrypoints=True, wind_scale=args.wind_scale),
+        scenario=SupaSupa(),
         render_mode=render_mode
     )
 
@@ -268,12 +268,12 @@ def main():
                     print(f"\t\tHeading: {airplane.phi:.0f}°, Track: {airplane.track:.0f}° (Crab: {crab_angle:.1f}°)")
                     print(f"\t\tFuel: {airplane.fuel_remaining_pct:.1f}%, Wind: ({airplane.wind_x:.1f}, {airplane.wind_y:.1f}) kts\n")
             
-            if done:
-                if reward > 1000:
-                    print("Scenario completed successfully!")
-                else:
-                    print(f"Scenario ended with reward: {reward:.2f}")
-                break
+            # if done:
+            #     if reward > 1000:
+            #         print("Scenario completed successfully!")
+            #     else:
+            #         print(f"Scenario ended with reward: {reward:.2f}")
+            #     break
         
         # Small delay between episodes
         time.sleep(1.0)

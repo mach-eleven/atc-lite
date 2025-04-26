@@ -551,11 +551,11 @@ class FilledPolygon(Geom):
         """
         Render the filled polygon using Pyglet shapes.
         """
-        # Convert vertices to float to avoid possible type issues
-        self.v = [(float(x), float(y)) for x, y in self.v]
-        
-        # Create and draw Pyglet polygon
-        poly = pyglet.shapes.Polygon(*self.v, color=self._color.vec4)
+        # Convert vertices to integers for earcut compatibility
+        int_v = [(int(x), int(y)) for x, y in self.v]
+
+        # Create and draw Pyglet polygon using integer vertices
+        poly = pyglet.shapes.Polygon(*int_v, color=self._color.vec4)
         poly.draw()
 
 

@@ -411,7 +411,7 @@ class Corridor:
         self._faf_iaf_normal = np.dot(rot_matrix(self.phi_from_runway), np.array([[0], [1]]))
 
         # Distance from threshold to FAF (Final Approach Fix) in nautical miles
-        faf_threshold_distance = 7.4
+        faf_threshold_distance = 2
         
         # Angle defining the corridor width (degrees from centerline)
         faf_angle = 45
@@ -538,6 +538,7 @@ class Runway:
         self.x = x
         self.y = y
         self.h = h
+        self.phi_orig = phi
         self.phi_from_runway = phi
         # Landing direction (opposite of phi_from_runway)
         self.phi_to_runway = (phi + 180) % 360
@@ -633,6 +634,16 @@ class Airspace:
         :return: A shapely Polygon object representing the combined airspace
         """
         polys = [mva.area for mva in self.mvas]
+        print(f"Number of polygons: {len(polys)}")
+        # check valid polygons
+        index = 0
+        for poly in polys:
+            print(f"Valid {index}")
+            if not poly.is_valid:
+                print(f"Invalid polygon: {poly}")
+                
+            index += 1
+        
         combined_poly = shapely.ops.unary_union(polys)
         return combined_poly
 

@@ -12,7 +12,7 @@ import sys
 import time
 import os
 
-from envs.atc.scenarios import LOWW
+from envs.atc import scenarios
 
 # Set Pyglet configurations for macOS
 os.environ["PYGLET_SHADOW_WINDOW"] = "0"
@@ -76,13 +76,11 @@ def train(
         discrete_action_space=not is_continuous_action_space
     )
     
-    # Create environment with fewer aircraft to start
->>>>>>> 190460762fb2e21c912d375ac0027eeae7f3731a
+    # Use the simple scenario for training
     env = AtcGym(
-        airplane_count=2,  # Start with fewer aircraft for easier learning
+        airplane_count=1,  # Single aircraft for easier learning
         sim_parameters=sim_params,
-        scenario=LOWW(),
-        render_mode="headless",
+        scenario=scenarios.SimpleTrainingScenario(),
     )
 
     # Reset environment to get initial state
@@ -176,24 +174,24 @@ def train(
     ppo_agent = PPO(
         state_dim,
         action_dim,
-        lr_actor=ppo_params["lr"],
-        lr_critic=ppo_params["lr"],
+        lr_actor=0.0003,  # Increased learning rate
+        lr_critic=0.0003,  # Increased learning rate
         gamma=ppo_params["gamma"],
-        K_epochs=ppo_params["K_epochs"],
+        K_epochs=120,  # More PPO epochs
         eps_clip=ppo_params["eps_clip"],
         has_continuous_action_space=is_continuous_action_space,
-        action_std_init=action_std,
-        # action_std_decay_rate=action_std_decay_rate,
-        # min_action_std=min_action_std,
-        # action_std_decay_freq=action_std_decay_freq,
+        action_std_init=0.2,  # Lower action std for more precise control
+        use_gae=True,  # Enable GAE
+        gae_lambda=0.97,  # Slightly higher lambda for bias-variance tradeoff
+        obs_norm=True,  # Enable observation normalization
+        entropy_coef=0.02,  # Higher entropy for more exploration
     )
 
     start_time = datetime.now().replace(microsecond=0)
     print("Started training at : ", start_time)
 
     log_f = open(run_dir / "log.txt", "w")
-    log_f.write('episode,timestep,reward\n')
-    log_f.flush()
+    header_written = False
     
     print_running_reward = 0
     print_running_episodes = 0
@@ -207,11 +205,17 @@ def train(
     # Add a debug flag to monitor aircraft positions
     debug_mode = True
 
+    # Prepare to accumulate reward components for each episode
+    episode_reward_components = None
+    reward_component_keys = None
+
     while time_step <= max_training_timesteps:
         state, _ = env.reset()
         current_ep_reward = 0
         done = False
         truncated = False
+        # Reset reward components accumulator
+        episode_reward_components = None
         
         # Debug initial state
         if debug_mode and i_episode < 3:
@@ -222,11 +226,28 @@ def train(
                       f"Heading {airplane.phi:.1f}°, Speed {airplane.v:.1f}")
         
         for t in range(1, max_ep_len+1):
-            # Handle state if it's a tuple (for newer Gym API compatibility)
+            # Mask actions for per-aircraft done logic
             if isinstance(state, tuple):
                 state = state[0]
-            
             action = ppo_agent.select_action(state)
+
+            # Track which aircraft are still active (not done)
+            if t == 1:
+                airplane_count = len(env._airplanes)
+                active_aircraft = [True] * airplane_count
+
+            # Mask actions for aircraft that are done (set to zeros)
+            action = action.copy() if isinstance(action, np.ndarray) else np.array(action)
+            for i in range(airplane_count):
+                # Heuristic: If aircraft is in approach corridor or out of fuel, mask its action
+                airplane = env._airplanes[i]
+                # Check if aircraft is in approach corridor (landed)
+                in_corridor = env._runway.inside_corridor(airplane.x, airplane.y, airplane.h, airplane.phi)
+                # Check if aircraft is out of fuel
+                out_of_fuel = getattr(airplane, 'fuel_remaining_pct', 100) <= 0.1
+                if in_corridor or out_of_fuel:
+                    active_aircraft[i] = False
+                    action[i*3:(i+1)*3] = 0.0
 
             # Perform action in the environment
             state, reward, done, truncated, info = env.step(action)
@@ -236,6 +257,14 @@ def train(
 
             time_step += 1
             current_ep_reward += reward
+
+            # Accumulate reward components
+            if 'reward_components' in info:
+                if episode_reward_components is None:
+                    episode_reward_components = {k: 0.0 for k in info['reward_components']}
+                    reward_component_keys = list(episode_reward_components.keys())
+                for k, v in info['reward_components'].items():
+                    episode_reward_components[k] += v
 
             # update the PPO agent
             if time_step % ppo_params["update_timestep"] == 0:
@@ -306,6 +335,20 @@ def train(
         print_running_episodes += 1
         save_running_reward += current_ep_reward
         save_running_episodes += 1
+
+        # Write episode reward components to log ONLY if header and keys are available
+        if not header_written and reward_component_keys is not None:
+            log_f.write('episode,timestep,reward,' + ','.join(reward_component_keys) + '\n')
+            header_written = True
+        if header_written and reward_component_keys is not None:
+            row = [str(int(i_episode)), str(int(time_step)), f"{current_ep_reward:.4f}"]
+            if episode_reward_components is not None:
+                row += [f"{episode_reward_components[k]:.4f}" for k in reward_component_keys]
+            else:
+                row += ["0.0000" for _ in reward_component_keys]
+            log_f.write(",".join(row) + "\n")
+            log_f.flush()
+
         i_episode += 1
     
     # close the environment

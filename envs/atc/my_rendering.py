@@ -112,6 +112,9 @@ class Viewer(object):
         # List for one-time geometries (cleared after each render)
         self.onetime_geoms = []
         
+        # List for one-time sprites (cleared after each render)
+        self.onetime_sprites = []
+        
         # Commented out: OpenGL transform that was used in the original version
         # self.transform = Transform()
 
@@ -171,6 +174,10 @@ class Viewer(object):
         """
         self.onetime_geoms.append(geom)
 
+    def add_onetime_sprite(self, sprite):
+        """Add a pyglet sprite to be drawn for just one frame"""
+        self.onetime_sprites.append(sprite)
+
     def render(self, return_rgb_array=False):
         """
         Render all geometries in the viewer and optionally return as an RGB array.
@@ -197,6 +204,11 @@ class Viewer(object):
         # Render all one-time geometries
         for geom in self.onetime_geoms:
             geom.render()
+        
+        # Render all one-time sprites
+        for sprite in self.onetime_sprites:
+            sprite.draw()
+        self.onetime_sprites = []
             
         # Commented out: OpenGL transform disable
         # self.transform.disable()
@@ -227,6 +239,9 @@ class Viewer(object):
         
         # Clear one-time geometries
         self.onetime_geoms = []
+        
+        # Clear one-time sprites
+        self.onetime_sprites = []
         
         # Return array if requested, otherwise return whether window is open
         return arr if return_rgb_array else self.isopen

@@ -115,7 +115,7 @@ def parse_args():
     parser.add_argument('--steps', type=int, default=600, help='Maximum steps per episode')
     parser.add_argument('--render-interval', type=int, default=1, 
                        help='Render every N steps (only applies in non-headless mode)')
-    parser.add_argument('--wind-scale', type=float, default=5.0,
+    parser.add_argument('--wind-scale', type=float, default=2.0,
                        help='Wind scale factor (higher = stronger winds)')
     parser.add_argument('--autopilot', action='store_true', default=True,
                        help='Enable autopilot heading correction')
@@ -173,10 +173,10 @@ def main():
     
     # Create environment with 3 aircraft for different scenarios with the specified render mode
     env = AtcGym(
-        airplane_count=1, 
+        airplane_count=3, 
         sim_parameters=sim_params, 
-        scenario=SupaSupa(),
-        render_mode=render_mode
+        scenario=SupaSupa(random_entrypoints=True),
+        render_mode=render_mode,
     )
 
     # Reset the environment
@@ -240,40 +240,51 @@ def main():
                 planned_actions.append(action)
         
         total_reward = 0
+        # Track which aircraft are still active (not done)
+        active_aircraft = [True] * airplane_count
         for step in range(max_steps_per_episode):
             # Use planned actions instead of random actions
             # This gives more realistic flight paths
-            action = planned_actions[step]
-            
+            action = planned_actions[step].copy()
+
             # Add small random perturbations to make it more realistic
             action += np.random.uniform(-0.05, 0.05, size=action.shape)
+
+            # Mask actions for aircraft that are done (set to zeros)
+            for i in range(airplane_count):
+                if not active_aircraft[i]:
+                    action[i*3:(i+1)*3] = 0.0
 
             # Step the environment
             state, reward, done, truncated, info = env.step(action)
             total_reward += reward
-            
+
             # Only render in non-headless mode, and only at specified intervals
             if not args.headless and step % args.render_interval == 0:
                 env.render()
                 time.sleep(0.05)  # Slightly faster for longer simulation
-            
+
             if step % 30 == 0 or step < 5:
                 print(f"\n--- Step {step}, Reward: {reward:.2f}, Total: {total_reward:.2f} ---")
                 for i, airplane in enumerate(env._airplanes):
-                    # Calculate crab angle (difference between heading and track)
                     crab_angle = model.relative_angle(airplane.phi, airplane.track)
-                    
                     print(f"{airplane.name}:\t\tPosition: ({airplane.x:.1f}, {airplane.y:.1f}) Altitude: {airplane.h:.0f} ft")
                     print(f"\t\tAirspeed: {airplane.v:.1f} kts, Groundspeed: {airplane.ground_speed:.1f} kts")
                     print(f"\t\tHeading: {airplane.phi:.0f}°, Track: {airplane.track:.0f}° (Crab: {crab_angle:.1f}°)")
                     print(f"\t\tFuel: {airplane.fuel_remaining_pct:.1f}%, Wind: ({airplane.wind_x:.1f}, {airplane.wind_y:.1f}) kts\n")
-            
-            # if done:
-            #     if reward > 1000:
-            #         print("Scenario completed successfully!")
-            #     else:
-            #         print(f"Scenario ended with reward: {reward:.2f}")
-            #     break
+
+            # Check which aircraft are done (landed, crashed, or out of fuel)
+            # The dones array is tracked internally in the environment, but only the global done is returned.
+            # We can infer per-aircraft done by checking if the aircraft is in the approach corridor or out of fuel/airspace.
+            # But the environment does not return per-aircraft dones, so we must keep masking actions for landed aircraft.
+            # This is handled above by setting their actions to zero after they land.
+
+            if done:
+                if reward > 1000:
+                    print("Scenario completed successfully!")
+                else:
+                    print(f"Scenario ended with reward: {reward:.2f}")
+                break
         
         # Small delay between episodes
         time.sleep(1.0)

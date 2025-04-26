@@ -1,19 +1,19 @@
 # minimal-atc-rl/envs/atc/atc_gym.py
 import math
 import random
+import os
 
 import gymnasium as gym
 import numpy as np
 from gymnasium.utils import seeding
 from numba import jit
+import pyglet
 
 from .rendering import Label, FuelGauge
 from .themes import ColorScheme
 from . import model
 from . import scenarios
 from . import my_rendering as rendering
-import os
-import pyglet
 
 # Import headless rendering capabilities
 from .headless_rendering import HeadlessViewer
@@ -108,6 +108,41 @@ class AtcGym(gym.Env):
 
         # Initialize environment state
         self.done = True
+
+        # Use airplane_count for normalization arrays
+        n = self._airplane_count
+        # Use typical aircraft values for normalization
+        v_min = 100
+        v_max = 300
+        h_max = 38000
+        # For derived features, use n as count
+        self.normalization_state_min = np.array([
+            *[self._world_x_min for _ in range(n)],          # Minimum x position
+            *[self._world_y_min for _ in range(n)],          # Minimum y position
+            *[0 for _ in range(n)],                          # Minimum altitude
+            *[0 for _ in range(n)],                          # Minimum heading
+            *[v_min for _ in range(n)],                      # Minimum speed
+            *[0 for _ in range(n)],                          # Minimum height above MVA
+            *[0 for _ in range(n)],                          # Minimum on-glidepath altitude
+            *[0 for _ in range(n)],                          # Minimum distance to FAF
+            *[-180 for _ in range(n)],                       # Minimum relative angle to FAF
+            *[-180 for _ in range(n)],                       # Minimum relative angle to runway
+            *[0 for _ in range(n)]                           # Minimum fuel percentage
+        ], dtype=np.float32)
+        self.normalization_state_max = np.array([
+            *[self._world_x_max - self._world_x_min for _ in range(n)],          # x position range
+            *[self._world_y_max - self._world_y_min for _ in range(n)],          # y position range
+            *[h_max for _ in range(n)],   # maximum altitude
+            *[360 for _ in range(n)],     # heading range
+            *[v_max for _ in range(n)],   # maximum speed (FIXED)
+            *[h_max for _ in range(n)],                        # maximum height above MVA
+            *[h_max for _ in range(n)],                        # maximum on glidepath altitude
+            *[self._world_max_distance for _ in range(n)],     # maximum distance to FAF
+            *[360 for _ in range(n)],                          # maximum relative angle to FAF
+            *[360 for _ in range(n)],                          # maximum relative angle to runway
+            *[100 for _ in range(n)]                           # maximum fuel percentage
+        ], dtype=np.float32)
+        
         self.reset()
         self.viewer = None
 
@@ -148,36 +183,6 @@ class AtcGym(gym.Env):
         self._action_discriminator = [5, 50, 0.5]  # For speed, altitude, heading
         self.last_action = [0, 0, 0]*len(self._airplanes)
 
-        # Define the observation space normalization parameters
-        self.normalization_state_min = np.array([
-            *[self._world_x_min for _ in self._airplanes],          # Minimum x position
-            *[self._world_y_min for _ in self._airplanes],          # Minimum y position
-            *[0 for _ in self._airplanes],                          # Minimum altitude
-            *[0 for _ in self._airplanes],                          # Minimum heading
-            *[airplane.v_min for airplane in self._airplanes],       # Minimum speed
-            *[0 for _ in self._airplanes],                          # Minimum height above MVA
-            *[0 for _ in self._on_gp_altitudes],                          # Minimum on-glidepath altitude
-            *[0 for _ in self._d_fafs],                          # Minimum distance to FAF
-            *[-180 for _ in self._phi_rel_fafs],                       # Minimum relative angle to FAF
-            *[-180 for _ in self._phi_rel_runways],                        # Minimum relative angle to runway
-            *[0 for _ in self._airplanes]                           # NEW: Minimum fuel percentage
-        ], dtype=np.float32)
-
-
-        self.normalization_state_max = np.array([
-            *[world_x_length for _ in self._airplanes],          # x position range in nautical miles
-            *[world_y_length for _ in self._airplanes],          # y position range in nautical miles
-            *[airplane.h_max for airplane in self._airplanes],   # maximum altitude range in feet
-            *[360 for _ in self._airplanes],                     # heading range in degrees
-            *[airplane.v_max - airplane.v_min for airplane in self._airplanes],       # speed range in knots
-            *[airplane.h_max for airplane in self._airplanes],                        # maximum height above MVA in feet
-            *[airplane.h_max for airplane in self._airplanes],                  # maximum on glidepath altitude in feet
-            *[self._world_max_distance for _ in self._d_fafs],                        # maximum distance to FAF in nautical miles
-            *[360 for _ in self._phi_rel_fafs],                   # maximum relative angle to FAF in degrees
-            *[360 for _ in self._phi_rel_runways],                 # maximum relative angle to runway in degrees
-            *[100 for _ in self._airplanes]                     # NEW: Maximum fuel percentage
-        ], dtype=np.float32)
-        
         # Define the observation space: x, y, h, phi, v, h-mva, on_gp, d_faf, phi_rel_faf, phi_rel_runway, fuel
         # All values normalized to [-1, 1]
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(len(self.normalization_state_min),))
@@ -186,6 +191,36 @@ class AtcGym(gym.Env):
         print("Number of airplanes: ", len(self._airplanes))
         print("Observation space: ", len(self.normalization_state_min))
         print("Action space: ", len(self.normalization_action_offset))
+
+        # Initialize trajectory visualization settings
+        self.show_trajectories = True  # Default: trajectories enabled
+        self.trajectory_colors = [
+            (255, 0, 0),    # Red
+            (0, 200, 255),  # Cyan
+            (255, 165, 0),  # Orange
+            (255, 0, 255),  # Magenta
+            (0, 255, 0)     # Green
+        ]
+        self.max_trail_length = 500  # Maximum number of history points to render
+        
+        # Load airplane images in different colors to match trajectory colors
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Base airplane image path
+        airplane_path = os.path.join(script_dir, 'assets', 'airplane_green.png')
+        try:
+            # Try to load the image directly
+            self.airplane_image = pyglet.image.load(airplane_path)
+            
+            # Set the anchor point for proper rotation
+            self.airplane_image.anchor_x = self.airplane_image.width // 2
+            self.airplane_image.anchor_y = self.airplane_image.height // 2
+            
+            self.use_airplane_image = True
+            print(f"Successfully loaded airplane image from {airplane_path}")
+        except Exception as e:
+            print(f"Could not load airplane image from any path. Error: {e}")
+            self.use_airplane_image = False
 
     def seed(self, seed=None):
         """
@@ -214,29 +249,55 @@ class AtcGym(gym.Env):
         self.timesteps += 1
         self.done = False
         # Small negative reward per timestep to encourage efficiency
-        reward = -0.05 * self._sim_parameters.timestep
+        time_penalty = -0.5 * self._sim_parameters.timestep  # Scaled up for normalization
+        reward = time_penalty
+        
+        # Dictionary to track reward components for logging
+        reward_components = {
+            "time_penalty": time_penalty,
+            "action_rewards": 0,
+            "fuel_penalties": 0,
+            "mva_penalties": 0,
+            "airspace_penalties": 0,
+            "success_rewards": 0,
+            "approach_position_rewards": 0,
+            "approach_angle_rewards": 0,
+            "fuel_efficiency_rewards": 0
+        }
 
         dones = [False] * len(self._airplanes)
         out_of_fuel = [False] * len(self._airplanes)
         
+        prev_d_fafs = list(self._d_fafs) if hasattr(self, '_d_fafs') else [None]*len(self._airplanes)
+        
         # Apply each action component and accumulate rewards
         c = 0
         for airplane in self._airplanes:
+            # Store previous position for corridor crossing check
+            prev_x, prev_y, prev_h, prev_phi = airplane.x, airplane.y, airplane.h, airplane.phi
             action = action_array[c * 3: (c + 1) * 3] # for airplane 0: 0-2, for airplane 1: 3-5
             last_action = self.last_action[c * 3: (c + 1) * 3]
 
-            rewa, updated_last_action = self._action_with_reward(airplane.action_v, action, last_action, 0)    # Speed
-            reward += rewa
+            # Process speed action
+            action_reward, updated_last_action = self._action_with_reward(airplane.action_v, action, last_action, 0)
+            reward += action_reward
+            reward_components["action_rewards"] += action_reward
             self.last_action[(c * 3) + 0] = updated_last_action[0]
             self.last_action[(c * 3) + 1] = updated_last_action[1]
             self.last_action[(c * 3) + 2] = updated_last_action[2]
-            rewa, updated_last_action = self._action_with_reward(airplane.action_h, action, last_action, 1)    # Altitude
-            reward += rewa
+            
+            # Process altitude action
+            action_reward, updated_last_action = self._action_with_reward(airplane.action_h, action, last_action, 1)
+            reward += action_reward
+            reward_components["action_rewards"] += action_reward
             self.last_action[(c * 3) + 0] = updated_last_action[0]
             self.last_action[(c * 3) + 1] = updated_last_action[1]
             self.last_action[(c * 3) + 2] = updated_last_action[2]
-            rewa, updated_last_action = self._action_with_reward(airplane.action_phi, action, last_action, 2)  # Heading
-            reward += rewa
+            
+            # Process heading action
+            action_reward, updated_last_action = self._action_with_reward(airplane.action_phi, action, last_action, 2)
+            reward += action_reward
+            reward_components["action_rewards"] += action_reward
             self.last_action[(c * 3) + 0] = updated_last_action[0]
             self.last_action[(c * 3) + 1] = updated_last_action[1]
             self.last_action[(c * 3) + 2] = updated_last_action[2]
@@ -249,7 +310,9 @@ class AtcGym(gym.Env):
             if not has_fuel:
                 out_of_fuel[c] = True
                 # Small penalty for running out of fuel
-                reward -= 10
+                fuel_penalty = -10
+                reward += fuel_penalty
+                reward_components["fuel_penalties"] += fuel_penalty
                 print(f"Aircraft {airplane.name} is out of fuel!")
 
             # Check if airplane is above the MVA (minimum vectoring altitude)
@@ -259,63 +322,119 @@ class AtcGym(gym.Env):
                 if airplane.h < mva:
                     # Airplane has descended below minimum safe altitude - failure
                     self._win_buffer.append(0)
-                    reward = -200  # Large negative reward
+                    mva_penalty = -50  # Scaled down for normalization
+                    reward = mva_penalty
+                    reward_components["mva_penalties"] += mva_penalty
                     dones[c] = True
-                    # print(f"Aircraft {airplane.name} has descended below MVA!")
+                    print(f"Aircraft {airplane.name} has descended below MVA!")
             except ValueError:
                 # Airplane has left the defined airspace - failure
                 self._win_buffer.append(0)
                 dones[c] = True
-                reward = -50  # Negative reward
+                airspace_penalty = -100  # Scaled down for normalization
+                reward = airspace_penalty
+                reward_components["airspace_penalties"] += airspace_penalty
                 mva = 0  # Dummy MVA value for the final state
                 # print(f"Aircraft {airplane.name} has left the airspace!")
 
             # Check if airplane has successfully reached the final approach corridor
-            if self._runway.inside_corridor(airplane.x, airplane.y, airplane.h, airplane.phi):
-                # GAME WON! Aircraft successfully guided to final approach
+            # --- SIMPLIFIED SUCCESS: Only require entering the approach corridor (ignore heading/altitude) ---
+            prev_in_corridor = self._runway.corridor.corridor_horizontal.contains(
+                model.geom.Point(prev_x, prev_y))
+            curr_in_corridor = self._runway.corridor.corridor_horizontal.contains(
+                model.geom.Point(airplane.x, airplane.y))
+            if (not prev_in_corridor) and curr_in_corridor:
                 self._win_buffer.append(1)
-                # Large positive reward plus bonus for finishing quickly and fuel efficiency
-                fuel_bonus = airplane.fuel_remaining_pct / 10  # Up to 10 points for fuel efficiency
-                reward = 10000 + max((self.timestep_limit - self.timesteps) * 5, 0) + fuel_bonus
+                fuel_bonus = airplane.fuel_remaining_pct
+                time_bonus = max((self.timestep_limit - self.timesteps) * 0.1, 0)
+                success_reward = 200 + time_bonus + 0.1 * fuel_bonus
+                reward = success_reward
+                reward_components["success_rewards"] += success_reward
                 dones[c] = True
-                print(f"Aircraft {airplane.name} has successfully reached the approach corridor!")
+                print(f"Aircraft {airplane.name} has entered the approach corridor (position only, simplified success)!")
+                print(f"  Fuel bonus: +{fuel_bonus:.2f} | Time bonus: +{time_bonus:.2f}")
 
-            # Apply additional reward shaping to guide learning
+            # --- Reward shaping: progress, alignment, circling penalty ---
             if self._sim_parameters.reward_shaping:
-                # Reward for being in a good approach position
-                app_position_reward = self._reward_approach_position(
-                    self._d_fafs[c], self._runway.phi_to_runway,
-                    self._phi_rel_fafs[c], self._world_max_distance
-                )
-                reward += app_position_reward
-                
-                # Reward for correct approach angle
-                reward += self._reward_approach_angle(
-                    self._runway.phi_to_runway,
-                    self._phi_rel_fafs[c], airplane.phi, app_position_reward
-                )
-                
-                # Reward for being on the correct glideslope
-                reward += self._reward_glideslope(
-                    airplane.h, self._on_gp_altitudes[c], app_position_reward
-                )
-                
-                # NEW: Small reward for fuel efficiency
-                reward += 0.01 * airplane.fuel_remaining_pct
+                prev_d_faf = prev_d_fafs[c]
+                to_faf_x = self._runway.corridor.faf[0][0] - airplane.x
+                to_faf_y = self._runway.corridor.faf[1][0] - airplane.y
+                new_d_faf = np.hypot(to_faf_x, to_faf_y)
+                delta = 0  # Fix: always define delta
+                if prev_d_faf is not None:
+                    delta = prev_d_faf - new_d_faf
+                # --- Denser shaping: progress reward for reducing distance to runway ---
+                progress_reward = 0.05 * max(0, delta)  # Positive for progress, zero otherwise
+                reward += progress_reward
+                reward_components["approach_position_rewards"] += progress_reward
+                # --- Increased approach position reward weight ---
+                approach_reward = 2.0 / (1.0 + np.exp(0.5 * (new_d_faf - 5)))
+                reward += approach_reward
+                reward_components["approach_position_rewards"] += approach_reward
+                # Remove or reduce far_penalty when close
+                if new_d_faf > 10:
+                    far_penalty = -0.005 * new_d_faf  # Scaled down
+                    reward += far_penalty
+                    reward_components["approach_position_rewards"] += far_penalty
+                # --- Slightly increase alignment reward when close ---
+                dist_to_runway = new_d_faf
+                alignment_reward = 0
+                if dist_to_runway < 10:
+                    heading_diff = abs(model.relative_angle(self._runway.phi_to_runway, airplane.phi))
+                    alignment_reward = 0.4 * (1 - heading_diff / 180.0)  # Increased from 0.2
+                    reward += alignment_reward
+                    reward_components["approach_angle_rewards"] += alignment_reward
+
+                if self.timesteps > 1:
+                    prev_heading = getattr(airplane, 'prev_phi', airplane.phi)
+                    heading_change = abs(model.relative_angle(airplane.phi, prev_heading))
+                    circling_penalty = -0.01 * heading_change  # Scaled down
+                    reward += circling_penalty
+                    reward_components["action_rewards"] += circling_penalty
+                    airplane.prev_phi = airplane.phi
+
+                # Penalty for not making progress for 10 steps
+                if hasattr(airplane, 'no_progress_steps'):
+                    if delta <= 0:
+                        airplane.no_progress_steps += 1
+                    else:
+                        airplane.no_progress_steps = 0
+                else:
+                    airplane.no_progress_steps = 0
+                if airplane.no_progress_steps >= 10:
+                    no_progress_penalty = -2.0  # Scaled down
+                    reward += no_progress_penalty
+                    reward_components["approach_position_rewards"] += no_progress_penalty
+                    airplane.no_progress_steps = 0
 
             c += 1
+
+        # If any aircraft reaches the approach corridor, terminate the episode immediately
+        if any(dones):
+            self.done = True
+            # Return early to avoid overwriting self.done
+            state = self._get_obs(mva)
+            if self._sim_parameters.normalize_state:
+                state = 2 * (state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
+            self._update_metrics(reward)
+            truncated = False
+            return state, reward, self.done, truncated, {"original_state": self.state, "reward_components": reward_components}
 
         # NEW: Check if all aircraft are out of fuel
         if all(out_of_fuel):
             self.done = True
-            reward = -100  # Penalty for all aircraft running out of fuel
+            all_fuel_penalty = -50  # was -100
+            reward = all_fuel_penalty
+            reward_components["fuel_penalties"] += all_fuel_penalty
             print("All aircraft are out of fuel!")
         else:
             self.done = all(dones)
 
         # Check if time limit exceeded
         if self.timesteps > self.timestep_limit:
-            reward = -200  # Negative reward for timeout
+            time_limit_penalty = -500  # Stronger penalty
+            reward = time_limit_penalty
+            reward_components["time_penalty"] = time_limit_penalty
             self.done = True
             print("Time limit exceeded!")
 
@@ -325,17 +444,36 @@ class AtcGym(gym.Env):
 
         # Normalize state if configured to do so
         if self._sim_parameters.normalize_state:
-            state = (state - self.normalization_state_min - 0.5 * self.normalization_state_max) \
-                    / (0.5 * self.normalization_state_max)
+            # Correct normalization to [-1, 1]
+            state = 2 * (state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
 
         # Update tracking metrics
         self._update_metrics(reward)
+        
+        # Print detailed reward breakdown
+        if self.timesteps % 20 == 0 or self.done:  # Print every 20 steps and at episode end
+            print("\n" + "="*60)
+            print(f"Step {self.timesteps} Reward Breakdown:")
+            print("-"*60)
+            for component, value in reward_components.items():
+                if abs(value) > 0.001:  # Only show non-zero components
+                    print(f"{component.replace('_', ' ').title()}: {value:.4f}")
+            print("-"*60)
+            print(f"Total Reward: {reward:.4f}")
+            print(f"Total Cumulative Reward: {self.total_reward:.4f}")
+            print("="*60 + "\n")
+        
+        # More frequent but compact reward updates
+        elif self.timesteps % 5 == 0:
+            significant_rewards = {k: v for k, v in reward_components.items() if abs(v) > 0.001}
+            components_str = " | ".join([f"{k.split('_')[0]}: {v:.2f}" for k, v in significant_rewards.items()])
+            print(f"Step {self.timesteps}: Reward = {reward:.2f} ({components_str})")
 
         # Gymnasium requires truncated flag (false in this implementation)
         truncated = False
 
         # Return the step result tuple
-        return state, reward, self.done, truncated, {"original_state": self.state}
+        return state, reward, self.done, truncated, {"original_state": self.state, "reward_components": reward_components}
 
     def _update_metrics(self, reward):
         """
@@ -367,12 +505,19 @@ class AtcGym(gym.Env):
         Returns:
             Position-based reward component
         """
-        # Reward for distance (higher when closer to FAF)
-        reward_faf = sigmoid_distance_func(d_faf, world_max_dist)
-        # Reward for alignment with approach course
-        reward_app_angle = (abs(model.relative_angle(phi_to_runway, phi_rel_to_faf)) / 180.0) ** 1.5
-        # Combine rewards with scaling factor
-        return reward_faf * reward_app_angle * 0.8
+        # Stronger reward for distance (higher when closer to FAF)
+        reward_faf = sigmoid_distance_func(d_faf, world_max_dist) ** 0.7  # More aggressive scaling
+        
+        # Calculate alignment with approach course - angle between runway heading and bearing to FAF
+        # Smaller angle = better alignment
+        angle_diff = abs(model.relative_angle(phi_to_runway, phi_rel_to_faf))
+        # Normalize to 0-1 range and invert so that smaller angles give higher rewards
+        normalized_angle = 1.0 - (angle_diff / 180.0)
+        # Apply non-linear scaling to create stronger gradient toward proper alignment
+        reward_app_angle = normalized_angle ** 1.2
+        
+        # Combine rewards with increased scaling factor
+        return reward_faf * reward_app_angle * 1.5  # Increased from 0.8 to 1.5
 
     @staticmethod
     def _reward_glideslope(h, on_gp_altitude, position_factor):
@@ -390,10 +535,22 @@ class AtcGym(gym.Env):
         Returns:
             Glideslope-based reward component
         """
-        # Reward for being close to the correct glideslope altitude
-        altitude_diff_factor = sigmoid_distance_func(abs(h - on_gp_altitude), 36000)
+        # Calculate altitude difference from ideal glidepath
+        altitude_diff = abs(h - on_gp_altitude)
+        
+        # Harsher penalties for being too low than too high (safety concern)
+        altitude_penalty_factor = 1.5 if h < on_gp_altitude else 1.0
+        
+        # Apply the penalty factor
+        weighted_diff = altitude_diff * altitude_penalty_factor
+        
+        # Convert to normalized reward (closer to glidepath = higher reward)
+        # More aggressive scaling to create stronger gradient
+        altitude_reward = sigmoid_distance_func(weighted_diff, 6000) ** 0.8
+        
         # Scale by position factor (more important when closer to approach)
-        return altitude_diff_factor * position_factor * 0.8
+        # Increased scaling factor from 0.8 to 2.0
+        return altitude_reward * position_factor * 2.0
 
     @staticmethod
     def _reward_approach_angle(phi_to_runway, phi_rel_to_faf, phi_plane, position_factor):
@@ -490,7 +647,6 @@ class AtcGym(gym.Env):
         return state
 
     @staticmethod
-    # have to remove this
     def _calculate_on_gp_altitude(d_faf, faf_mva):
         """
         Calculate the target altitude on the 3-degree glidepath
@@ -663,6 +819,9 @@ class AtcGym(gym.Env):
 
         # Only render dynamic elements if not in headless mode
         if render_mode != 'headless':
+            # Render trajectories before aircraft to keep them in the background
+            self._render_trajectories()
+            
             # Render dynamic elements
             for airplane in self._airplanes:
                 self._render_airplane(airplane) # Aircraft symbols
@@ -689,169 +848,203 @@ class AtcGym(gym.Env):
     
     def _render_airplane(self, airplane: model.Airplane):
         """
-        Render the airplane symbol and information with high visibility
+        Render the airplane using an image and information with high visibility
         
         Args:
             airplane: The aircraft to render
         """
-        # GREATLY INCREASED aircraft symbol size
-        render_size = 12  # Increased from 4 to 12
+        # Get screen coordinates for the airplane
         vector = self._screen_vector(airplane.x, airplane.y)
-        corner_vector = np.array([[0], [render_size]])
-        corner_top_right = np.dot(model.rot_matrix(45), corner_vector) + vector
-        corner_bottom_right = np.dot(model.rot_matrix(135), corner_vector) + vector
-        corner_bottom_left = np.dot(model.rot_matrix(225), corner_vector) + vector
-        corner_top_left = np.dot(model.rot_matrix(315), corner_vector) + vector
-
-        # Create the airplane symbol with THICK lines using attrs param
-        symbol = rendering.PolyLine([
-            (corner_top_right[0][0], corner_top_right[1][0]),
-            (corner_bottom_right[0][0], corner_bottom_right[1][0]),
-            (corner_bottom_left[0][0], corner_bottom_left[1][0]),
-            (corner_top_left[0][0], corner_top_left[1][0])
-        ], True, linewidth=4)  # Added linewidth parameter here
         
-        # Color the airplane based on fuel level with BRIGHTER colors
-        if airplane.fuel_remaining_pct > 66:
-            symbol.set_color(255, 255, 255)  # Bright white
-        elif airplane.fuel_remaining_pct > 33:
-            symbol.set_color(255, 255, 0)  # Bright yellow
-        else:
-            symbol.set_color(255, 0, 0)   # Bright red
-            
-        self.viewer.add_onetime(symbol)
-
-        # FILL the aircraft symbol to make it more visible
-        filled_symbol = rendering.FilledPolygon([
-            (corner_top_right[0][0], corner_top_right[1][0]),
-            (corner_bottom_right[0][0], corner_bottom_right[1][0]),
-            (corner_bottom_left[0][0], corner_bottom_left[1][0]),
-            (corner_top_left[0][0], corner_top_left[1][0])
-        ])
+        # Get airplane index to determine which color to use
+        airplane_index = next((i for i, a in enumerate(self._airplanes) if a is airplane), 0)
+        # Use modulo to handle case where we have more airplanes than colors
+        color_index = airplane_index % len(self.trajectory_colors)
+        # Get this airplane's trajectory color
+        traj_color = self.trajectory_colors[color_index]
         
-        # Color matching the outline but slightly transparent
-        if airplane.fuel_remaining_pct > 66:
-            filled_symbol.set_color_opacity(200, 200, 255, 150)  # Light blue fill
-        elif airplane.fuel_remaining_pct > 33:
-            filled_symbol.set_color_opacity(255, 255, 150, 150)  # Light yellow fill
-        else:
-            filled_symbol.set_color_opacity(255, 150, 150, 150)  # Light red fill
+        # If we can use the airplane image
+        if hasattr(self, 'use_airplane_image') and self.use_airplane_image and hasattr(self, 'airplane_image'):
+            # Create sprite and apply color tint to match trajectory color
+            sprite = pyglet.sprite.Sprite(self.airplane_image)
             
-        self.viewer.add_onetime(filled_symbol)
+            # Apply color tint to match trajectory color
+            sprite.color = traj_color
+            
+            # Scale the sprite (adjust this value to change size)
+            scale_factor = 0.15
+            sprite.scale = scale_factor
+            
+            # Position the sprite at the airplane's coordinates
+            sprite.x = vector[0][0]
+            sprite.y = vector[1][0]
+            
+            # Rotate the sprite to match the airplane's TRACK 
+            sprite_rotation = airplane.track
+            sprite.rotation = sprite_rotation
+            
+            # Draw the sprite
+            self.viewer.add_onetime_sprite(sprite)
+        else:
+            # Fallback to original diamond shape if image can't be loaded
+            render_size = 12
+            corner_vector = np.array([[0], [render_size]])
+            corner_top_right = np.dot(model.rot_matrix(45), corner_vector) + vector
+            corner_bottom_right = np.dot(model.rot_matrix(135), corner_vector) + vector
+            corner_bottom_left = np.dot(model.rot_matrix(225), corner_vector) + vector
+            corner_top_left = np.dot(model.rot_matrix(315), corner_vector) + vector
+            
+            symbol = rendering.PolyLine([
+                (corner_top_right[0][0], corner_top_right[1][0]),
+                (corner_bottom_right[0][0], corner_bottom_right[1][0]),
+                (corner_bottom_left[0][0], corner_bottom_left[1][0]),
+                (corner_top_left[0][0], corner_top_left[1][0])
+            ], True, linewidth=4)
+            
+            # Set color to match trajectory color
+            symbol.set_color(traj_color[0], traj_color[1], traj_color[2])
+                
+            self.viewer.add_onetime(symbol)
 
-        # Add track arrow (green) to show actual direction of movement
-        # MUCH LONGER and THICKER arrow - use attrs parameter for linewidth
-        track_arrow_length = render_size * 12  # Very long arrow
-        track_arrow_vector = np.array([[track_arrow_length], [0]])  # Start with horizontal vector
-        # Rotate arrow by airplane track
-        rotated_track_arrow = np.dot(model.rot_matrix(airplane.track - self._runway.phi_orig), track_arrow_vector)
-        # Draw arrow from center of diamond using attrs for linewidth
+            filled_symbol = rendering.FilledPolygon([
+                (corner_top_right[0][0], corner_top_right[1][0]),
+                (corner_bottom_right[0][0], corner_bottom_right[1][0]),
+                (corner_bottom_left[0][0], corner_bottom_left[1][0]),
+                (corner_top_left[0][0], corner_top_left[1][0])
+            ])
+            
+            # Set fill color to match trajectory color but with some transparency
+            filled_symbol.set_color_opacity(traj_color[0], traj_color[1], traj_color[2], 150)
+                
+            self.viewer.add_onetime(filled_symbol)
+
+            aircraft_symbol_transform = rendering.Transform()
+            aircraft_symbol_transform.set_rotation(math.radians(airplane.track))
+            symbol.add_attr(aircraft_symbol_transform)
+            filled_symbol.add_attr(aircraft_symbol_transform)
+
+        # Add track arrow to show actual direction of movement
+        track_arrow_length = 12 * 6  # Long arrow
+        track_arrow_vector = np.array([[track_arrow_length], [0]])
+        
+        # Use the airplane's track angle to rotate the vector correctly
+        # Apply -90 degree adjustment to align with the airplane image
+        adjusted_track_angle = airplane.track - 90
+        rotated_track_arrow = np.dot(model.rot_matrix(adjusted_track_angle), track_arrow_vector)
+        
         track_arrow = rendering.Line(
-            (vector[0][0], vector[1][0]),  # Start at diamond center
-            (vector[0][0] + rotated_track_arrow[0][0], vector[1][0] + rotated_track_arrow[1][0]),  # End at rotated point
-            attrs={"linewidth": 4}  # Using attrs parameter for linewidth
+            (vector[0][0], vector[1][0]),
+            (vector[0][0] + rotated_track_arrow[0][0], vector[1][0] + rotated_track_arrow[1][0]),
+            attrs={"linewidth": 3}
         )
-        # MUCH BRIGHTER green color
-        track_arrow.set_color(0, 255, 0)  # Bright green for track
+        # Use trajectory color for the arrow
+        track_arrow.set_color(traj_color[0], traj_color[1], traj_color[2])
         self.viewer.add_onetime(track_arrow)
         
-        # # Add large arrowhead to the track line
-        # arrowhead_size = render_size * 2.5  # MUCH LARGER arrowhead
-        # arrowhead_vector1 = np.array([[-arrowhead_size], [-arrowhead_size]])
-        # arrowhead_vector2 = np.array([[-arrowhead_size], [arrowhead_size]])
+        # Add arrowhead to the track line
+        arrowhead_size = 6 * 2.5
+        arrowhead_vector1 = np.array([[-arrowhead_size], [-arrowhead_size]])
+        arrowhead_vector2 = np.array([[-arrowhead_size], [arrowhead_size]])
         
-        # # Position arrowhead at the end of the track arrow
-        # arrowhead_pos = vector + rotated_track_arrow
+        arrowhead_pos = vector + rotated_track_arrow
         
-        # # Rotate arrowhead to match track direction
-        # rotated_arrowhead1 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector1) + arrowhead_pos
-        # rotated_arrowhead2 = np.dot(model.rot_matrix(airplane.track), arrowhead_vector2) + arrowhead_pos
+        # Use the same adjusted track angle for the arrowhead rotation
+        rotated_arrowhead1 = np.dot(model.rot_matrix(adjusted_track_angle), arrowhead_vector1) + arrowhead_pos
+        rotated_arrowhead2 = np.dot(model.rot_matrix(adjusted_track_angle), arrowhead_vector2) + arrowhead_pos
         
-        # # Draw arrowhead with linewidth in attrs
-        # arrowhead1 = rendering.Line(
-        #     (arrowhead_pos[0][0], arrowhead_pos[1][0]),
-        #     (rotated_arrowhead1[0][0], rotated_arrowhead1[1][0]),
-        #     attrs={"linewidth": 3}
-        # )
-        # arrowhead2 = rendering.Line(
-        #     (arrowhead_pos[0][0], arrowhead_pos[1][0]),
-        #     (rotated_arrowhead2[0][0], rotated_arrowhead2[1][0]),
-        #     attrs={"linewidth": 3}
-        # )
-        # arrowhead1.set_color(0, 255, 0)  # Bright green
-        # arrowhead2.set_color(0, 255, 0)  # Bright green
-        # self.viewer.add_onetime(arrowhead1)
-        # self.viewer.add_onetime(arrowhead2)
+        arrowhead1 = rendering.Line(
+            (arrowhead_pos[0][0], arrowhead_pos[1][0]),
+            (rotated_arrowhead1[0][0], rotated_arrowhead1[1][0]),
+            attrs={"linewidth": 3}
+        )
+        arrowhead2 = rendering.Line(
+            (arrowhead_pos[0][0], arrowhead_pos[1][0]),
+            (rotated_arrowhead2[0][0], rotated_arrowhead2[1][0]),
+            attrs={"linewidth": 3}
+        )
+        # Use trajectory color for arrowheads as well
+        arrowhead1.set_color(traj_color[0], traj_color[1], traj_color[2])
+        arrowhead2.set_color(traj_color[0], traj_color[1], traj_color[2])
+        self.viewer.add_onetime(arrowhead1)
+        self.viewer.add_onetime(arrowhead2)
         
-        # # Add heading arrow (blue) to show the direction the nose is pointing
-        # # LONGER and THICKER arrow
-        # heading_arrow_length = render_size * 10  # Longer arrow
-        # heading_arrow_vector = np.array([[heading_arrow_length], [0]])  # Start with horizontal vector
-        # # Rotate arrow by airplane heading
-        # rotated_heading_arrow = np.dot(model.rot_matrix(airplane.phi), heading_arrow_vector)
-        # # Draw arrow from center of diamond
-        # heading_arrow = rendering.Line(
-        #     (vector[0][0], vector[1][0]),  # Start at diamond center
-        #     (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),  # End at rotated point
-        #     attrs={"linewidth": 3}  # Using attrs parameter for linewidth
-        # )
-        # # BRIGHTER blue
-        # heading_arrow.set_color(50, 50, 255)  # Bright blue for heading
-        # self.viewer.add_onetime(heading_arrow)
-        
-        # # Add blue arrowhead to heading arrow
-        # heading_arrowhead_size = render_size * 2  # Large arrowhead
-        # heading_arrowhead_vector1 = np.array([[-heading_arrowhead_size], [-heading_arrowhead_size]])
-        # heading_arrowhead_vector2 = np.array([[-heading_arrowhead_size], [heading_arrowhead_size]])
-        
-        # # Position arrowhead at the end of the heading arrow
-        # heading_arrowhead_pos = vector + rotated_heading_arrow
-        
-        # # Rotate arrowhead to match heading direction
-        # rotated_heading_arrowhead1 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector1) + heading_arrowhead_pos
-        # rotated_heading_arrowhead2 = np.dot(model.rot_matrix(airplane.phi), heading_arrowhead_vector2) + heading_arrowhead_pos
-        
-        # # Draw THICKER heading arrowhead with attrs
-        # heading_arrowhead1 = rendering.Line(
-        #     (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
-        #     (rotated_heading_arrowhead1[0][0], rotated_heading_arrowhead1[1][0]),
-        #     attrs={"linewidth": 2}
-        # )
-        # heading_arrowhead2 = rendering.Line(
-        #     (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
-        #     (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
-        #     attrs={"linewidth": 2}
-        # )
-        # heading_arrowhead1.set_color(50, 50, 255)  # Bright blue
-        # heading_arrowhead2.set_color(50, 50, 255)  # Bright blue
-        # self.viewer.add_onetime(heading_arrowhead1)
-        # self.viewer.add_onetime(heading_arrowhead2)
+        # Calculate crab angle (difference between heading and track)
+        crab_angle = model.relative_angle(airplane.phi, airplane.track)
+
+        # Calculate offset for heading arrow to show crab angle difference from track
+        # Only display heading arrow if there's a significant crab angle
+        if abs(crab_angle) > 2.0:
+            # Add heading arrow (blue) to show the direction the nose is pointing
+            heading_arrow_length = 12 * 5
+            heading_arrow_vector = np.array([[heading_arrow_length], [0]])
+            
+            # Apply -90 degree adjustment to the heading arrow as well
+            adjusted_heading_angle = airplane.phi - 90
+            rotated_heading_arrow = np.dot(model.rot_matrix(adjusted_heading_angle), heading_arrow_vector)
+            
+            heading_arrow = rendering.Line(
+                (vector[0][0], vector[1][0]),
+                (vector[0][0] + rotated_heading_arrow[0][0], vector[1][0] + rotated_heading_arrow[1][0]),
+                attrs={"linewidth": 2}
+            )
+            heading_arrow.set_color(50, 50, 255)  # Keep heading arrow blue for visibility
+            self.viewer.add_onetime(heading_arrow)
+            
+            # Add blue arrowhead to heading arrow
+            heading_arrowhead_size = 12 * 1.5
+            heading_arrowhead_vector1 = np.array([[-heading_arrowhead_size], [-heading_arrowhead_size]])
+            heading_arrowhead_vector2 = np.array([[-heading_arrowhead_size], [heading_arrowhead_size]])
+            
+            heading_arrowhead_pos = vector + rotated_heading_arrow
+            
+            # Use the adjusted heading angle for the arrowheads too
+            rotated_heading_arrowhead1 = np.dot(model.rot_matrix(adjusted_heading_angle), heading_arrowhead_vector1) + heading_arrowhead_pos
+            rotated_heading_arrowhead2 = np.dot(model.rot_matrix(adjusted_heading_angle), heading_arrowhead_vector2) + heading_arrowhead_pos
+            
+            heading_arrowhead1 = rendering.Line(
+                (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
+                (rotated_heading_arrowhead1[0][0], rotated_heading_arrowhead1[1][0]),
+                attrs={"linewidth": 2}
+            )
+            heading_arrowhead2 = rendering.Line(
+                (heading_arrowhead_pos[0][0], heading_arrowhead_pos[1][0]),
+                (rotated_heading_arrowhead2[0][0], rotated_heading_arrowhead2[1][0]),
+                attrs={"linewidth": 2}
+            )
+            heading_arrowhead1.set_color(50, 50, 255)  # Keep heading arrow blue
+            heading_arrowhead2.set_color(50, 50, 255)  # Keep heading arrow blue
+            self.viewer.add_onetime(heading_arrowhead1)
+            self.viewer.add_onetime(heading_arrowhead2)
 
         # Create labels with aircraft information
-        label_pos = np.dot(model.rot_matrix(135), 2.5 * corner_vector) + vector
-        render_altitude = round(airplane.h) // 100  # Flight level
-        render_speed = round(airplane.v)      # Speed in knots
+        render_altitude = round(airplane.h) // 100
+        render_speed = round(airplane.v)
         render_text = f"FL{render_altitude:03} {render_speed}kt"
+        
+        # Position labels a bit offset from the aircraft
+        label_offset = 20  # Pixels
+        label_x = vector[0][0] + label_offset
+        label_y = vector[1][0] + label_offset
 
         # Add aircraft callsign and details labels
-        label_name = Label(airplane.name, x=label_pos[0][0], y=label_pos[1][0])
-        label_details = Label(render_text, x=label_pos[0][0], y=label_pos[1][0] - 20)
+        label_name = Label(airplane.name, x=label_x, y=label_y)
+        label_details = Label(render_text, x=label_x, y=label_y - 20)
         label_hdg_trk = Label(f"HDG:{airplane.phi:.0f}° TRK:{airplane.track:.0f}°", 
-                              x=label_pos[0][0], y=label_pos[1][0] - 40)
+                              x=label_x, y=label_y - 40)
         label_wind = Label(f"Wind: {math.sqrt(airplane.wind_x**2 + airplane.wind_y**2):.1f}kt", 
-                           x=label_pos[0][0], y=label_pos[1][0] - 60)
+                           x=label_x, y=label_y - 60)
         
         self.viewer.add_onetime(label_name)
         self.viewer.add_onetime(label_details)
         self.viewer.add_onetime(label_hdg_trk)
         self.viewer.add_onetime(label_wind)
         
-        # Add a larger fuel gauge near the airplane
+        # Add a fuel gauge near the airplane
         fuel_gauge = FuelGauge(
-            x=label_pos[0][0], 
-            y=label_pos[1][0] - 80,
-            width=50,  # Wider
-            height=8,  # Taller
+            x=label_x, 
+            y=label_y - 80,
+            width=50,
+            height=8,
             fuel_percentage=airplane.fuel_remaining_pct,
         )
         self.viewer.add_onetime(fuel_gauge)
@@ -1098,6 +1291,14 @@ class AtcGym(gym.Env):
             """
             self.done = False
 
+            # Set random seed for deterministic reset
+            if seed is not None:
+                np.random.seed(seed)
+                random.seed(seed)
+            else:
+                np.random.seed(42)
+                random.seed(42)
+
             # Calculate the center of the airspace for a safer starting position
             center_x = (self._world_x_min + self._world_x_max) / 2
             center_y = (self._world_y_min + self._world_y_max) / 2
@@ -1114,24 +1315,18 @@ class AtcGym(gym.Env):
             while len(available_entrypoints) < self._airplane_count:
                 available_entrypoints.extend(self._scenario.entrypoints)
             
-            # Make sure each aircraft starts at a different entry point
-            # by shuffling the list and taking the first _airplane_count entries
-            random.shuffle(available_entrypoints)
-            selected_entrypoints = available_entrypoints[:self._airplane_count]
+            # Always use the first entry point and first altitude for each aircraft for deterministic start
+            selected_entrypoints = self._scenario.entrypoints[:self._airplane_count]
 
             for i in range(self._airplane_count):
                 # Use a different entry point for each aircraft
                 entry_point = selected_entrypoints[i]
                 
-                # Instead of placing the airplane 25% of the way from center to entry point,
-                # place it much closer to the entry point (90%) for better spacing
-                x = center_x + 0.9 * (entry_point.x - center_x)
-                y = center_y + 0.9 * (entry_point.y - center_y)
-                
-                # Add some random perturbation for increased separation
-                # This will move each aircraft randomly in a small area around its starting point
-                x += random.uniform(-5, 5)
-                y += random.uniform(-5, 5)
+                # Place the airplane exactly at the entry point (no randomization)
+                x = entry_point.x
+                y = entry_point.y
+                altitude = entry_point.levels[0] * 100  # Always use the first altitude
+                phi = entry_point.phi
                 
                 # Create new airplane instances for the simulation
                 self._airplanes.append(
@@ -1139,8 +1334,8 @@ class AtcGym(gym.Env):
                         self._sim_parameters,
                         f"FLT{i+1:03}",                                    # Flight identifier
                         x, y,                                       # Position
-                        random.choice(entry_point.levels) * 100,    # Altitude
-                        entry_point.phi,                            # Heading
+                        altitude,                                    # Altitude
+                        phi,                            # Heading
                         250                                         # Initial speed
                     )
                 )
@@ -1153,6 +1348,9 @@ class AtcGym(gym.Env):
                 
             # Reset state and tracking variables
             self.state = self._get_obs(0)
+            # Normalize state if configured to do so
+            if self._sim_parameters.normalize_state:
+                self.state = 2 * (self.state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
             self.total_reward = 0
             self.last_reward = 0
             self._actions_ignoring_resets += self.actions_taken
@@ -1170,3 +1368,43 @@ class AtcGym(gym.Env):
                                 (self._win_buffer[-1] - self._win_buffer.pop(0))
 
             return self.state, {"info": "Environment reset"}
+
+    def _render_trajectories(self):
+        """
+        Render the trajectory trails of aircraft based on their position history.
+        """
+        if not self.show_trajectories:
+            return
+            
+        for i, airplane in enumerate(self._airplanes):
+            # Get position history from the airplane
+            history = airplane.position_history
+            
+            # Skip if history is too short
+            if len(history) < 2:
+                continue
+                
+            # Limit the trail length to prevent performance issues
+            trail_points = history[-self.max_trail_length:]
+            
+            # Convert world coordinates to screen coordinates
+            screen_points = []
+            for x, y in trail_points:
+                point = self._screen_vector(x, y)
+                screen_points.append((point[0][0], point[1][0]))
+            
+            # Draw polyline connecting history points
+            color = self.trajectory_colors[i % len(self.trajectory_colors)]
+            trail = rendering.PolyLine(screen_points, False, linewidth=2)
+            trail.set_color(*color)
+            self.viewer.add_onetime(trail)
+
+    def toggle_trajectories(self):
+        """
+        Toggle the display of aircraft trajectories
+        
+        Returns:
+            Current state of trajectory display (True=enabled, False=disabled)
+        """
+        self.show_trajectories = not self.show_trajectories
+        return self.show_trajectories

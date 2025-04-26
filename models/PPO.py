@@ -47,29 +47,29 @@ class ActorCritic(nn.Module):
         # actor
         if has_continuous_action_space :
             self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 64),
+                            nn.Linear(state_dim, 128),
                             nn.Tanh(),
-                            nn.Linear(64, 64),
+                            nn.Linear(128, 128),
                             nn.Tanh(),
-                            nn.Linear(64, action_dim),
+                            nn.Linear(128, action_dim),
                             nn.Tanh()
                         )
         else:
             self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 64),
+                            nn.Linear(state_dim, 128),
                             nn.Tanh(),
-                            nn.Linear(64, 64),
+                            nn.Linear(128, 128),
                             nn.Tanh(),
-                            nn.Linear(64, action_dim),
+                            nn.Linear(128, action_dim),
                             nn.Softmax(dim=-1)
                         )
         # critic
         self.critic = nn.Sequential(
-                        nn.Linear(state_dim, 64),
+                        nn.Linear(state_dim, 128),
                         nn.Tanh(),
-                        nn.Linear(64, 64),
+                        nn.Linear(128, 128),
                         nn.Tanh(),
-                        nn.Linear(64, 1)
+                        nn.Linear(128, 1)
                     )
         
     def set_action_std(self, new_action_std):
@@ -122,7 +122,7 @@ class ActorCritic(nn.Module):
 
 
 class PPO:
-    def __init__(self, state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space, action_std_init=0.6):
+    def __init__(self, state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space, action_std_init=0.6, use_gae=False, gae_lambda=0.95, obs_norm=False, entropy_coef=0.02):
 
         self.has_continuous_action_space = has_continuous_action_space
 
@@ -145,6 +145,15 @@ class PPO:
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
+
+        self.use_gae = use_gae
+        self.gae_lambda = gae_lambda
+        self.obs_norm = obs_norm
+        self.entropy_coef = entropy_coef
+        if obs_norm:
+            self.obs_running_mean = torch.zeros(state_dim, device=device)
+            self.obs_running_var = torch.ones(state_dim, device=device)
+            self.obs_count = 1e-4
 
     def set_action_std(self, new_action_std):
         if self.has_continuous_action_space:
@@ -172,11 +181,25 @@ class PPO:
             print("WARNING : Calling PPO::decay_action_std() on discrete action space policy")
         print("--------------------------------------------------------------------------------------------")
 
+    def _normalize_obs(self, obs):
+        if not self.obs_norm:
+            return obs
+        # Update running mean/var
+        self.obs_count += 1
+        delta = obs - self.obs_running_mean
+        self.obs_running_mean += delta / self.obs_count
+        delta2 = obs - self.obs_running_mean
+        self.obs_running_var += delta * delta2
+        std = torch.sqrt(self.obs_running_var / self.obs_count)
+        return (obs - self.obs_running_mean) / (std + 1e-8)
+
     def select_action(self, state):
 
         if self.has_continuous_action_space:
             with torch.no_grad():
                 state = torch.FloatTensor(state).to(device)
+                if self.obs_norm:
+                    state = self._normalize_obs(state)
                 action, action_logprob, state_val = self.policy_old.act(state)
 
             self.buffer.states.append(state)
@@ -188,6 +211,8 @@ class PPO:
         else:
             with torch.no_grad():
                 state = torch.FloatTensor(state).to(device)
+                if self.obs_norm:
+                    state = self._normalize_obs(state)
                 action, action_logprob, state_val = self.policy_old.act(state)
             
             self.buffer.states.append(state)
@@ -198,21 +223,32 @@ class PPO:
             return action.item()
 
     def update(self):
-        # Monte Carlo estimate of returns
+        # Monte Carlo estimate of returns or GAE
         rewards = []
-        discounted_reward = 0
-        for reward, is_terminal in zip(reversed(self.buffer.rewards), reversed(self.buffer.is_terminals)):
-            if is_terminal:
-                discounted_reward = 0
-            discounted_reward = reward + (self.gamma * discounted_reward)
-            rewards.insert(0, discounted_reward)
+        if self.use_gae:
+            gae = 0
+            values = [v.item() for v in self.buffer.state_values] + [0]
+            for i in reversed(range(len(self.buffer.rewards))):
+                delta = self.buffer.rewards[i] + self.gamma * values[i + 1] * (1 - self.buffer.is_terminals[i]) - values[i]
+                gae = delta + self.gamma * self.gae_lambda * (1 - self.buffer.is_terminals[i]) * gae
+                rewards.insert(0, gae + values[i])
+        else:
+            discounted_reward = 0
+            for reward, is_terminal in zip(reversed(self.buffer.rewards), reversed(self.buffer.is_terminals)):
+                if is_terminal:
+                    discounted_reward = 0
+                discounted_reward = reward + (self.gamma * discounted_reward)
+                rewards.insert(0, discounted_reward)
             
         # Normalizing the rewards
         rewards = torch.tensor(rewards, dtype=torch.float32).to(device)
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
 
         # convert list to tensor
-        old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(device)
+        if self.obs_norm:
+            old_states = torch.stack([self._normalize_obs(s) for s in self.buffer.states], dim=0).detach().to(device)
+        else:
+            old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(device)
         old_actions = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(device)
         old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs, dim=0)).detach().to(device)
         old_state_values = torch.squeeze(torch.stack(self.buffer.state_values, dim=0)).detach().to(device)
@@ -237,7 +273,7 @@ class PPO:
             surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
             # final loss of clipped objective PPO
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * dist_entropy
+            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - self.entropy_coef * dist_entropy
             
             # take gradient step
             self.optimizer.zero_grad()
@@ -256,8 +292,8 @@ class PPO:
     def load(self, checkpoint_path):
         self.policy_old.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
         self.policy.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
-        
-        
-       
+
+
+
 
 

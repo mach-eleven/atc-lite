@@ -10,10 +10,13 @@ from stable_baselines3.common.env_checker import check_env
 from envs.atc.atc_gym import AtcGym
 from envs.atc import scenarios
 import envs.atc.model as model
+from tqdm import tqdm, trange
 
 # Set Pyglet configurations for macOS
 os.environ['PYGLET_SHADOW_WINDOW'] = '0'
 sys.path.append('.')
+
+DEBUG_PRINT = False
 
 class RewardPlotter:
     def __init__(self, reward_keys):
@@ -86,8 +89,10 @@ if __name__ == '__main__':
         'glideslope_rewards', 'fuel_efficiency_rewards', 'fuel_penalties'
     ]
 
+
+    # DEFINITIONS 
     n_episodes_per_stage = 500
-    steps_per_episode = 500
+    steps_per_episode = int(5e4)
     log_path = os.path.join(outdir, 'training_log.csv')
 
     success_threshold = 0.99  # 99% success required to move to next stage
@@ -95,7 +100,6 @@ if __name__ == '__main__':
     max_episodes_per_stage = 5000  # Safety cap to avoid infinite loops
 
     for stage, (entry_xy, entry_heading) in enumerate(curriculum_entry_points):
-        print(f"\n=== Curriculum Stage {stage+1}: Entry {entry_xy}, Heading {entry_heading} ===")
         stage_name = f"stage{stage+1}_entry{entry_xy[0]}_{entry_xy[1]}_hdg{entry_heading}"
         stage_dir = os.path.join(outdir, stage_name)
         os.makedirs(stage_dir, exist_ok=True)
@@ -111,56 +115,53 @@ if __name__ == '__main__':
         model_path = os.path.join(stage_dir, f'sb3_ppo_model_{stage_name}.zip')
         # Load from checkpoint if provided, else create new model
         if args.checkpoint and os.path.exists(args.checkpoint):
-            print(f"Loading model from checkpoint: {args.checkpoint}")
-            model_ = PPO.load(args.checkpoint, env=vec_env)
+            model_ = PPO.load(args.checkpoint, env=vec_env, verbose=0)
         elif stage > 0 and os.path.exists(prev_model_path):
-            print(f"Loading model from previous curriculum stage: {prev_model_path}")
-            model_ = PPO.load(prev_model_path, env=vec_env)
+            model_ = PPO.load(prev_model_path, env=vec_env, verbose=0)
         else:
-            print("Starting new model from scratch.")
-            model_ = PPO('MlpPolicy', vec_env, verbose=1)
+            model_ = PPO('MlpPolicy', vec_env, verbose=0)
 
         plotter = RewardPlotter(reward_keys)
         recent_successes = []
         ep = 0
-        while True:
-            obs = env.reset()[0]
-            done = False
-            total_rewards = {k: 0 for k in reward_keys}
-            total_reward = 0
-            for step in range(steps_per_episode):
-                action, _ = model_.predict(obs, deterministic=False)
-                obs, reward, done, truncated, info = env.step(action)
-                total_reward += reward
-                if 'reward_components' in info:
-                    for k in reward_keys:
-                        total_rewards[k] += info['reward_components'].get(k, 0)
-                if done:
+        with tqdm(total=max_episodes_per_stage, desc=f"{stage_name} (Episodes)", position=0, leave=True) as ep_bar:
+            while True:
+                obs = env.reset()[0]
+                done = False
+                total_rewards = {k: 0 for k in reward_keys}
+                total_reward = 0
+                with tqdm(total=steps_per_episode, desc=f"Steps (Ep {ep+1})", position=1, leave=False) as step_bar:
+                    for step in range(steps_per_episode):
+                        action, _ = model_.predict(obs, deterministic=False)
+                        obs, reward, done, truncated, info = env.step(action)
+                        total_reward += reward
+                        if 'reward_components' in info:
+                            for k in reward_keys:
+                                total_rewards[k] += info['reward_components'].get(k, 0)
+                        step_bar.update(1)
+                        if done:
+                            break
+                    
+                model_.learn(total_timesteps=steps_per_episode, reset_num_timesteps=False)
+                plotter.update(ep, total_rewards)
+                episode_success = total_rewards['success_rewards'] > 0
+                recent_successes.append(episode_success)
+                if len(recent_successes) > window_size:
+                    recent_successes.pop(0)
+                if ep % 50 == 0 and ep > 0:
+                    model_.save(os.path.join(stage_dir, f'sb3_ppo_model_{stage_name}_ep{ep}.zip'))
+                    with open(os.path.join(stage_dir, f'training_log_{stage_name}.csv'), 'a') as f:
+                        writer = csv.writer(f)
+                        if ep == 0:
+                            writer.writerow(['episode', 'total_reward'] + reward_keys)
+                        writer.writerow([ep, total_reward] + [total_rewards[k] for k in reward_keys])
+                # Check if we can promote to next stage
+                if ep >= window_size and sum(recent_successes) / window_size >= success_threshold:
                     break
-            model_.learn(total_timesteps=steps_per_episode, reset_num_timesteps=False)
-            plotter.update(ep, total_rewards)
-            episode_success = total_rewards['success_rewards'] > 0
-            recent_successes.append(episode_success)
-            if len(recent_successes) > window_size:
-                recent_successes.pop(0)
-            if ep % 10 == 0:
-                print(f"{stage_name} Ep {ep}: {total_rewards}, Total: {total_reward}")
-            if ep % 50 == 0 and ep > 0:
-                model_.save(os.path.join(stage_dir, f'sb3_ppo_model_{stage_name}_ep{ep}.zip'))
-                with open(os.path.join(stage_dir, f'training_log_{stage_name}.csv'), 'a') as f:
-                    writer = csv.writer(f)
-                    if ep == 0:
-                        writer.writerow(['episode', 'total_reward'] + reward_keys)
-                    writer.writerow([ep, total_reward] + [total_rewards[k] for k in reward_keys])
-                print(f"[LOG] {stage_name} Ep {ep}: Total Reward: {total_reward} | " + ", ".join([f"{k}: {total_rewards[k]}" for k in reward_keys]))
-            # Check if we can promote to next stage
-            if ep >= window_size and sum(recent_successes) / window_size >= success_threshold:
-                print(f"[CURRICULUM] Success threshold reached at episode {ep}, moving to next stage.")
-                break
-            if ep >= max_episodes_per_stage:
-                print(f"[CURRICULUM] Max episodes ({max_episodes_per_stage}) reached for {stage_name}, moving to next stage.")
-                break
-            ep += 1
+                if ep >= max_episodes_per_stage:
+                    break
+                ep += 1
+                ep_bar.update(1)
         # Save model and log at end of stage
         model_.save(model_path)
         plotter.save(stage_dir)

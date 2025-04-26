@@ -34,6 +34,7 @@ def main():
     # --- NEW: Try to auto-detect stage from model filename if stage not given ---
     parser.add_argument('--entry', type=str, default=None, help='Override entry point as x,y (e.g. 5,5)')
     parser.add_argument('--heading', type=int, default=None, help='Override heading (default: from curriculum)')
+    parser.add_argument('--skip-frames', type=int, default=100, help='Render every Nth frame (default: 1, i.e., no skipping)')
     args = parser.parse_args()
 
     outdir = 'sb3_logs'
@@ -44,7 +45,7 @@ def main():
         match = re.search(r'stage(\d+)_entry(\d+)_([\d]+)_hdg(\d+)', args.model)
         if match:
             args.stage = int(match.group(1))
-            print(f"[INFO] Auto-detected stage {args.stage} from model filename.")
+            # print(f"[INFO] Auto-detected stage {args.stage} from model filename.")
 
     if args.stage is not None:
         stages = [args.stage - 1]
@@ -63,7 +64,7 @@ def main():
             entry_heading = curriculum_entry_points[stage][1]
         stage_name = f"stage{stage+1}_entry{entry_xy[0]}_{entry_xy[1]}_hdg{entry_heading}"
         model_path = args.model
-        print(f"\n=== Visualizing {stage_name} with model {model_path} ===")
+        # print(f"\n=== Visualizing {stage_name} with model {model_path} ===")
         env = AtcGym(
             airplane_count=1,
             sim_parameters=model.SimParameters(1.0, discrete_action_space=False, normalize_state=True),
@@ -73,11 +74,14 @@ def main():
         model_ = PPO.load(model_path)
         obs = env.reset()[0]
         done = False
+        frame_count = 0
         while not done:
             action, _ = model_.predict(obs, deterministic=True)
             obs, reward, done, truncated, info = env.step(action)
-            env.render()
-            time.sleep(0.05)
+            frame_count += 1
+            if frame_count % args.skip_frames == 0:
+                env.render()
+                time.sleep(0.05)
         env.close()
 
 if __name__ == "__main__":

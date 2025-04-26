@@ -480,7 +480,6 @@ class CurriculumTrainingScenario(Scenario):
         self.wind = model.Wind((0, 40, 0, 40), swirl_scale=0.0)
         self.entrypoints = [model.EntryPoint(entry_xy[0], entry_xy[1], entry_heading, [150])]
 
-
 # Generated scenario class from Shapefile
 class SupaSupa(Scenario):
     """

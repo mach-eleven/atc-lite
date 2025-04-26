@@ -649,7 +649,7 @@ class Wind:
                  resolution=1.0,    # this is the spacing between points in our wind grid
                  seed=0,            # for rng
                  num_centers=3,     # how many hotspots to create
-                 swirl_scale=5.0):  # REDUCED from 10.0 to 5.0: strength of the swirl effect for each center
+                 swirl_scale=2.0):  # REDUCED from 10.0 to 5.0: strength of the swirl effect for each center
        
         self.min_x, self.max_x, self.min_y, self.max_y = bounding_box
         self.resolution = resolution

@@ -3,4 +3,3 @@ __pycache__
 .DS_Store
 logs
 PPO_figs
-envs\atc\atc_gym.py

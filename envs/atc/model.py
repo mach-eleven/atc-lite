@@ -755,6 +755,14 @@ class EntryPoint:
         self.phi = phi
         self.levels = levels
 
+    def __iter__(self):
+        return iter([(self.x, self.y), self.phi, self.levels])
+    
+    def __str__(self):
+        return f"Entry(x={self.x}, y={self.y}, phi={self.phi}, levels={self.levels})"
+    def __repr__(self):
+        return f"Entry(x={self.x}, y={self.y}, phi={self.phi}, levels={self.levels})"
+        
 @jit(nopython=True)
 def ray_tracing(x, y, poly):
     """

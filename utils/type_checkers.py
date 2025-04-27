@@ -5,6 +5,33 @@ from pathlib import Path
 import logging 
 logger = logging.getLogger("train.type_checkers")
 
+def curr_stage_type(value):
+    """
+    Custom type checker for the curriculum stage argument.
+    Accepts 'max' or an integer greater than 0.
+    """
+    if value == "max":
+        return value
+    try:
+        ivalue = int(value)
+        if ivalue <= 0:
+            raise argparse.ArgumentTypeError(f"Value must be greater than 0: {value}")
+        return ivalue
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid value for stage: {value}. Must be 'max' or a positive integer.")
+    
+def entry_point_type(value):
+    """
+    Custom type checker for the entry point argument.
+    Accepts a string in the format 'x,y' where x and y are integers.
+    """
+    try:
+        x, y = map(int, value.split(','))
+        return (x, y)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid entry point format: {value}. Must be 'x,y' where x and y are integers.")
+    
+
 def checkpoint_type(value):
     path = Path(value)
     if not path.exists():

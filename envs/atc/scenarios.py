@@ -1,5 +1,6 @@
 # minimal-atc-rl/envs/atc/scenarios.py
 from math import ceil
+import math
 import numpy as np
 import shapely.geometry as shape  # For geometric operations and polygon definitions
 from typing import List  # For type hinting
@@ -494,7 +495,7 @@ class SupaSupa(Scenario):
     - Wind conditions across the airspace
     """
     
-    def __init__(self, fixed_entrypoint= model.EntryPoint(30, 50, 100, [350]), random_entrypoints=False):
+    def __init__(self, entry_point=None):
         """
         Initialize the SupaSupa scenario with predefined airspace elements.
         
@@ -2648,7 +2649,7 @@ class SupaSupa(Scenario):
         ]
 
         # Define the runway parameters
-        self.runway = model.Runway(71.48, 62.56, 7, 0)
+        self.runway = model.Runway(71.48, 62.56, 7, 180)
 
         # Create the airspace object by combining MVAs and runway
         self.airspace = model.Airspace(self.mvas, self.runway)
@@ -2660,50 +2661,55 @@ class SupaSupa(Scenario):
         logger.debug(f"Airspace bounds: {bounds}")
         self.wind = model.Wind((min_x, max_x, min_y, max_y))
 
-        # Define entry points where aircraft enter the simulation
-        if random_entrypoints:
-            self.entrypoints = []
-            bounds = self.airspace.get_bounding_box()
-            min_x, max_x = bounds[0], bounds[2]
-            min_y, max_y = bounds[1], bounds[3]
-            num_points = 10
-            for _ in range(num_points):
-                edge = random.randint(0, 3)
-                if edge == 0:  # Top edge
-                    x = random.uniform(min_x, max_x)
-                    y = max_y
-                    heading = random.uniform(180, 270)
-                elif edge == 1:  # Right edge
-                    x = max_x
-                    y = random.uniform(min_y, max_y)
-                    heading = random.uniform(180, 360)
-                elif edge == 2:  # Bottom edge
-                    x = random.uniform(min_x, max_x)
-                    y = min_y
-                    heading = random.uniform(0, 180)
-                else:  # Left edge
-                    x = min_x
-                    y = random.uniform(min_y, max_y)
-                    heading = random.uniform(0, 180)
-                levels = [130, 150, 170, 190, 210, 230]
-                self.entrypoints.append(model.EntryPoint(x, y, heading, levels))
+        if entry_point is not None:
+            self.entrypoints = [entry_point]
         else:
-            self.entrypoints = [fixed_entrypoint] 
+            self.entrypoints = [model.EntryPoint(115.22979218012345, 81.40474641021605, 247, [209])]
 
-    def generate_aircraft(self, count, bounds):
-        """Generate aircraft with safer initial positions"""
-        from model import Airplane, SimParameters
-        padding = 10  # nautical miles from edge
-        min_x, max_x = bounds[0] + padding, bounds[1] - padding
-        min_y, max_y = bounds[2] + padding, bounds[3] - padding
-        min_alt, max_alt = 5000, 10000
-        aircraft = []
-        for i in range(count):
-            x = np.random.uniform(min_x, max_x)
-            y = np.random.uniform(min_y, max_y)
-            altitude = np.random.uniform(min_alt, max_alt)
-            heading = np.random.uniform(0, 360)
-            velocity = np.random.uniform(200, 250)  # knots
-            sim_params = SimParameters()
-            aircraft.append(Airplane(sim_params, f"FL{i+1:03d}", x, y, altitude, heading, velocity))
-        return aircraft
+    def generate_curriculum_entrypoints(self, num_entrypoints: int) -> List[model.EntryPoint]:
+        # by default, SupaSupa only has one entrypoint, right at the start of the simulation.
+        # This is located at the edge of the airspace, and is the only entrypoint that should be used, to stay accurate to the real world scenario.
+        # Curriculum entry points are in a straight line from the entrypoint to the runway threshold.
+        # So, let's draw a line from the entrypoint to the runway threshold, and place the entrypoints along that line.
+        # We will sample num_entrypoints points along that line, and return them as entrypoints.
+
+        # Get the entrypoint and runway threshold coordinates
+        num_entrypoints = num_entrypoints - 1
+        
+        entrypoint = self.entrypoints[0]
+        runway_threshold_coords = self.runway.x, self.runway.y
+        entrypoint_coords = entrypoint.x, entrypoint.y
+
+        # Calculate the distance between the entrypoint and runway threshold
+        distance = math.sqrt(
+            (runway_threshold_coords[0] - entrypoint_coords[0]) ** 2 +
+            (runway_threshold_coords[1] - entrypoint_coords[1]) ** 2
+        )
+
+        # Calculate the step size based on the number of entrypoints
+        step_size = distance / (num_entrypoints + 1)
+        phi_options = [0, 90, 180, 270]  # Possible headings for the entrypoints
+        entrypoints = []
+        for i in range(1, num_entrypoints + 1):
+            # Calculate the coordinates of the new entrypoint
+            ratio = step_size * i / distance
+            new_x = entrypoint_coords[0] + (runway_threshold_coords[0] - entrypoint_coords[0]) * ratio
+            new_y = entrypoint_coords[1] + (runway_threshold_coords[1] - entrypoint_coords[1]) * ratio
+            phi = phi_options[(i-1) % len(phi_options)]
+            # Get the MVA at this point
+            try:
+                mva_height = self.airspace.get_mva_height(new_x, new_y)
+            except Exception as e:
+                logger.warning(f"Could not get MVA at ({new_x}, {new_y}): {e}")
+                mva_height = 0
+            random_levels = [mva_height / 100 + 50]
+
+            new_entrypoint = model.EntryPoint(new_x, new_y, phi, random_levels)
+            entrypoints.append(new_entrypoint)
+            logger.debug(f"Generated entrypoint {i}: {new_entrypoint}")
+
+        # ensure entrypoints are arranged such that we start closest to the runway
+        entrypoints.sort(key=lambda ep: math.sqrt((ep.x - runway_threshold_coords[0]) ** 2 + (ep.y - runway_threshold_coords[1]) ** 2))
+        # Add the original entrypoint to the end of the list
+        entrypoints.append(entrypoint)
+        return entrypoints

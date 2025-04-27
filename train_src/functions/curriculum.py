@@ -27,38 +27,24 @@ def train_curriculum(args, reward_keys):
 
     """ Create the environment """
 
-    def my_env():
+    def my_env(curriculum_entry_point):
         return AtcGym(
-            airplane_count=2,
+            airplane_count=1,
             sim_parameters=model.SimParameters(
                 1.0, discrete_action_space=False, normalize_state=True
             ),
-            scenario=scenarios.SupaSupa(),
+            scenario=scenarios.SupaSupa(entry_point=curriculum_entry_point),
             render_mode="headless",
         )
 
-    env = my_env()
-    vec_env = make_vec_env(my_env, n_envs=args.threads)
+    curriculum_entry_points = scenarios.SupaSupa().generate_curriculum_entrypoints(num_entrypoints=args.curr_stages) # generates based on default entrypoints
 
-    curriculum_entry_points = [
-        ((15, 15), 45),   # Close, NE
-        ((14, 14), 90),   # East
-        ((13, 13), 135),  # SE
-        ((12, 12), 180),  # South
-        ((12, 12), 160),  # South
-        ((11, 11), 180),  # SW
-        ((10, 10), 180),  # West
-        ((9, 9), 180),    # NW
-        ((8, 8), 180),      # North
-        ((7, 7), 180),     # NE, off-axis
-        ((6, 6), 180),    # SE, off-axis
-        ((5, 5), 180),    # NW, off-axis
-        ((0, 0), 180),     # Farthest corner, NE
-        ((0, 0), 160),     # Farthest corner, NE
-    ]
-
-    for stage, (entry_xy, entry_heading) in enumerate(curriculum_entry_points):
+    for stage, entry_point in enumerate(curriculum_entry_points):
         
+        env = my_env(entry_point)
+        vec_env = make_vec_env(my_env, n_envs=args.threads, env_kwargs = {"curriculum_entry_point": entry_point})
+
+        entry_xy, entry_heading, _ = tuple(entry_point)
         # set the avriables: eval_log_path_csv, flog_path, tensorboard_logd, tb_logger, plotter 
         stage_name = f"stage{stage+1}_entry{entry_xy[0]}_{entry_xy[1]}_hdg{entry_heading}"
         stage_dir = Path(args.outdir) / stage_name
@@ -127,7 +113,7 @@ def train_curriculum(args, reward_keys):
             for ep in range(args.max_episodes):
 
                 try:
-                    logger.info(f"Stage {stage} ({entry_xy}, {entry_heading}). Episode {ep+1}/{args.max_episodes} started.")
+                    logger.info(f"Stage {stage} ({entry_point}). Episode {ep+1}/{args.max_episodes} started.")
                     start_time = time.time()
                     model_.learn(
                         total_timesteps=args.max_steps_per_episode,
@@ -173,11 +159,16 @@ def train_curriculum(args, reward_keys):
                         logger.info(f"[SAVED] Model saved to '{model_path}'")
                         logger.info("=" * 80)
 
-                    if ep >= args.curr_window_size and sum(recent_successes) / args.curr_window_size >= args.curr_success_threshold:
-                        logger.info(f"Promoting to next stage: {stage_name}")
-                        break
+                    if ep >= args.curr_window_size:
+                        logger.info(f"Recent successes: {recent_successes}. Attempting promotion to the next stage.")
+                        if sum(recent_successes) / args.curr_window_size >= args.curr_success_threshold:
+                            logger.info(f"Promoting to next stage: {stage_name} with value {sum(recent_successes) / args.curr_window_size:.2f} >= {args.curr_success_threshold}")
+                            break
+                        else:
+                            logger.info(f"Not promoting to next stage: {stage_name} with value {sum(recent_successes) / args.curr_window_size:.2f} < {args.curr_success_threshold}")
+       
                     if ep >= args.max_episodes:
-                        logger.info(f"Reached max episodes {args.curr_ep_per_stage} for stage: {stage_name}")
+                        logger.info(f"Reached max episodes {args.max_episodes} for stage: {stage_name}")
                         break
 
                 except KeyboardInterrupt:
@@ -190,6 +181,7 @@ def train_curriculum(args, reward_keys):
             with open(stage_dir / f"training_log_{stage_name}.csv", "a") as f:
                 writer = csv.writer(f)
                 writer.writerow(["final", eval_rewards] + [eval_components[k] for k in reward_keys])
+            plotter.close()
         except KeyboardInterrupt:
             logger.info("Stage training interrupted!")
             break

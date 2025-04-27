@@ -121,6 +121,11 @@ def parse_args():
                        help='Enable autopilot heading correction')
     parser.add_argument('--no-autopilot', action='store_false', dest='autopilot',
                        help='Disable autopilot heading correction')
+    parser.add_argument('--curr-stages', type=int, default=15,
+                          help='Number of stages for curriculum training')
+    parser.add_argument('--curr-stage-entry-point', type=int, default=15,
+                          help='Curriculum stage to use (1 = closest, ... N = farthest)')
+    parser.add_argument('--pause-frame', action='store_true', default=False)
     return parser.parse_args()
 
 def main():
@@ -172,10 +177,13 @@ def main():
     #         )
     
     # Create environment with 3 aircraft for different scenarios with the specified render mode
+    
+    curr_entry_points = SupaSupa().generate_curriculum_entrypoints(num_entrypoints=args.curr_stages)
+    print(curr_entry_points)
     env = AtcGym(
-        airplane_count=3, 
+        airplane_count=1, 
         sim_parameters=sim_params, 
-        scenario=SupaSupa(random_entrypoints=True),
+        scenario=SupaSupa(curr_entry_points[args.curr_stage_entry_point - 1]),
         render_mode=render_mode,
     )
 
@@ -263,6 +271,12 @@ def main():
             if not args.headless and step % args.render_interval == 0:
                 env.render()
                 time.sleep(0.05)  # Slightly faster for longer simulation
+            
+            if args.pause_frame:
+                print("Pausing simulation for observation...")
+                # Pause the simulation for a short time to allow for observation
+                time.sleep(10000000)
+
 
             if step % 30 == 0 or step < 5:
                 print(f"\n--- Step {step}, Reward: {reward:.2f}, Total: {total_reward:.2f} ---")

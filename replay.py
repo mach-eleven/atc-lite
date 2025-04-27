@@ -26,6 +26,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("train")
+logger.setLevel(logging.INFO)
 
 def validate_and_get_entry_point(entry, heading, level, curr_stage_entry_point):
     if entry is not None and heading is not None and level is not None:

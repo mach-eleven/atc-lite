@@ -4,6 +4,7 @@ from pathlib import Path
 
 import logging 
 logger = logging.getLogger("train.type_checkers")
+logger.setLevel(logging.INFO)
 
 def curr_stage_type(value):
     """

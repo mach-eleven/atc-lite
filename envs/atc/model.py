@@ -15,6 +15,8 @@ from enum import Enum
 
 import logging 
 logger = logging.getLogger("train.model")
+logger.setLevel(logging.INFO)
+
 
 class MvaType(Enum):
     """Enumeration of different types of Minimum Vectoring Altitude areas."""

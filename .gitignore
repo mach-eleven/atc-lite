@@ -8,3 +8,6 @@ viz/*
 sb3_logs/*
 
 new_logs/*
+
+test_logs/*
+temp_*

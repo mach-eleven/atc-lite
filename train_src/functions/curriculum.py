@@ -2,9 +2,12 @@ import csv
 from pathlib import Path
 import time
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3 import PPO
 
 import logging
+
+import torch
 
 from envs.atc import model, scenarios
 from envs.atc.atc_gym import AtcGym
@@ -19,7 +22,7 @@ from utils.train_test_functions import evaluate, train_model
 from torch.utils.tensorboard import SummaryWriter
 
 logger = logging.getLogger("train.curriculum")
-
+logger.setLevel(logging.INFO)
 
 def train_curriculum(args, reward_keys):
 
@@ -39,10 +42,14 @@ def train_curriculum(args, reward_keys):
 
     curriculum_entry_points = scenarios.SupaSupa().generate_curriculum_entrypoints(num_entrypoints=args.curr_stages) # generates based on default entrypoints
 
-    for stage, entry_point in enumerate(curriculum_entry_points):
-        
+    for stage, entry_point in enumerate(curriculum_entry_points, start=0):
+
+        if stage < args.checkpoint_stage - 1:
+            logger.info(f"Skipping stage {stage} as per checkpoint stage.")
+            continue
+
         env = my_env(entry_point)
-        vec_env = make_vec_env(my_env, n_envs=args.threads, env_kwargs = {"curriculum_entry_point": entry_point})
+        vec_env = make_vec_env(my_env, n_envs=args.threads, env_kwargs = {"curriculum_entry_point": entry_point}, vec_env_cls=SubprocVecEnv)
 
         entry_xy, entry_heading, _ = tuple(entry_point)
         # set the avriables: eval_log_path_csv, flog_path, tensorboard_logd, tb_logger, plotter 
@@ -85,7 +92,7 @@ def train_curriculum(args, reward_keys):
                 env=vec_env,
                 verbose=1 if args.debug else 0,
                 tensorboard_log=tensorboard_logd,
-                n_steps=4096,
+                n_steps=2048,
                 batch_size=4096,
             )
         elif stage > 0 and (prev_model_path := stage_dir.parent / f"curr_model_stage{stage}_entry{entry_xy[0]}_{entry_xy[1]}_hdg{entry_heading}.zip").exists():
@@ -94,8 +101,8 @@ def train_curriculum(args, reward_keys):
                 env=vec_env,
                 verbose=1 if args.debug else 0,
                 tensorboard_log=tensorboard_logd,
-                n_steps=4096,
-                batch_size=4096,
+                n_steps=2048,
+                batch_size=2048,
             )
         else:
             model_ = PPO(
@@ -103,9 +110,12 @@ def train_curriculum(args, reward_keys):
                 vec_env,
                 verbose=1 if args.debug else 0,
                 tensorboard_log=tensorboard_logd,
-                n_steps=4096,
-                batch_size=4096,
+                n_steps=2048,
+                batch_size=2048,
             )
+
+
+        model_.policy = torch.compile(model_.policy)
 
         try:
             ep = 0

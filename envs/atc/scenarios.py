@@ -12,6 +12,7 @@ import random
 
 import logging 
 logger = logging.getLogger("train.scenarios")
+logger.setLevel(logging.INFO)
 
 class Scenario:
     """

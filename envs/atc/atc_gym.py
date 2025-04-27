@@ -4,6 +4,7 @@ import random
 import os
 import logging
 logger = logging.getLogger("train.atc_gym")
+logger.setLevel(logging.INFO)
 
 import gymnasium as gym
 import numpy as np

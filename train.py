@@ -40,7 +40,7 @@ def add_arguments(parser):
     parser.add_argument('--threads', type=gt_0, default=8, help='Number of threads to use for training')
     parser.add_argument('--curr-window-size', type=gt_0, default=50, help='Window size for success rate check in curriculum training')
     parser.add_argument('--curr-success-threshold', type=gt_0_float, default=0.90, help='Success rate threshold for curriculum training')
-    parser.add_argument('--curr-stages', type=gt_0, default=15, help='Number of stages for curriculum training')
+    parser.add_argument('--curr-stages', type=gt_0, default=100, help='Number of stages for curriculum training')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

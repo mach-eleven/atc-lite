@@ -121,7 +121,7 @@ def parse_args():
                        help='Enable autopilot heading correction')
     parser.add_argument('--no-autopilot', action='store_false', dest='autopilot',
                        help='Disable autopilot heading correction')
-    parser.add_argument('--curr-stages', type=int, default=15,
+    parser.add_argument('--curr-stages', type=int, default=100,
                           help='Number of stages for curriculum training')
     parser.add_argument('--curr-stage-entry-point', type=int, default=15,
                           help='Curriculum stage to use (1 = closest, ... N = farthest)')

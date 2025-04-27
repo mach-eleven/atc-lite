@@ -2688,7 +2688,7 @@ class SupaSupa(Scenario):
 
         # Calculate the step size based on the number of entrypoints
         step_size = distance / (num_entrypoints + 1)
-        phi_options = [0, 90, 180, 270]  # Possible headings for the entrypoints
+        phi_options = [entrypoint.phi]
         entrypoints = []
         for i in range(1, num_entrypoints + 1):
             # Calculate the coordinates of the new entrypoint
@@ -2702,7 +2702,7 @@ class SupaSupa(Scenario):
             except Exception as e:
                 logger.warning(f"Could not get MVA at ({new_x}, {new_y}): {e}")
                 mva_height = 0
-            random_levels = [mva_height / 100 + 50]
+            random_levels = [entrypoint.levels[0]]
 
             new_entrypoint = model.EntryPoint(new_x, new_y, phi, random_levels)
             entrypoints.append(new_entrypoint)

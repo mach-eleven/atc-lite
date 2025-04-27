@@ -52,7 +52,7 @@ def add_arguments(parser):
     parser.add_argument('--model', type=str, default='ppo_sb3', choices=['ppo_sb3', 'ppo', 'dqn'], help='RL algorithm to replay')
     parser.add_argument('--checkpoint', type=str, required=True, help='Path to checkpoint file to run')
     parser.add_argument('--curr-stage-entry-point', type=curr_stage_type, default="max", help='Curriculum stage to use (1 = closest, ... N = farthest). If none, it will use default entry point.')
-    parser.add_argument('--curr-stages', type=gt_0, default=15, help='Number of entry points to generate for curriculum training')
+    parser.add_argument('--curr-stages', type=gt_0, default=100, help='Number of entry points to generate for curriculum training')
     parser.add_argument('--entry', type=entry_point_type, default=None, help='Override entry point as x,y (e.g. 5,5)')
     parser.add_argument('--heading', type=gt_0, default=None, help='Override heading.')
     parser.add_argument('--level', type=gt_0, default=None, help='Override flight level.')

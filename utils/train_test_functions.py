@@ -123,6 +123,7 @@ def train_model(model_, args, logger, env, reward_keys, eval_log_path_csv, flog_
         tb_logger.close()
 
     env.close()
-    plotter.close()
+    if args.live_plot:
+        plotter.close()
 
     logger.info(f"Training completed. Model saved to {model_path}.")

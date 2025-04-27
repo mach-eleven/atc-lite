@@ -71,7 +71,7 @@ def train_sb3_ppo(args, reward_keys):
             n_epochs=10,
         )
 
-    model_.policy = torch.compile(model_.policy)
+    # model_.policy = torch.compile(model_.policy)
 
     """ Main training loop """
     train_model(model_, args, logger, env, reward_keys, eval_log_path_csv, flog_path, tb_logger, plotter)

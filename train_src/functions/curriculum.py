@@ -115,7 +115,7 @@ def train_curriculum(args, reward_keys):
             )
 
 
-        model_.policy = torch.compile(model_.policy)
+        # model_.policy = torch.compile(model_.policy)
 
         try:
             ep = 0
@@ -189,10 +189,12 @@ def train_curriculum(args, reward_keys):
             model_.save(model_path)
             if args.live_plot:
                 plotter.save(stage_dir)
+                plotter.close()
+
             with open(stage_dir / f"training_log_{stage_name}.csv", "a") as f:
                 writer = csv.writer(f)
                 writer.writerow(["final", eval_rewards] + [eval_components[k] for k in reward_keys])
-            plotter.close()
+
         except KeyboardInterrupt:
             logger.info("Stage training interrupted!")
             break
@@ -224,6 +226,7 @@ def train_curriculum(args, reward_keys):
         tb_logger.close()
 
     env.close()
-    plotter.close()
+    if args.live_plot:
+        plotter.close()
 
     logger.info(f"Training completed. Model saved to {model_path}.")

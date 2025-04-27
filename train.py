@@ -38,8 +38,8 @@ def add_arguments(parser):
     parser.add_argument('--debug', action='store_true', help='Enable debug mode, i.e. stdout logging.', default=False)
     parser.add_argument('--live-plot', action='store_true', help='Enable live plotting of evaluation progress, updated every eval freqeuncy.', default=True)
     parser.add_argument('--threads', type=gt_0, default=8, help='Number of threads to use for training')
-    parser.add_argument('--curr-window-size', type=gt_0, default=2, help='Window size for success rate check in curriculum training')
-    parser.add_argument('--curr-success-threshold', type=gt_0_float, default=0.20, help='Success rate threshold for curriculum training')
+    parser.add_argument('--curr-window-size', type=gt_0, default=50, help='Window size for success rate check in curriculum training')
+    parser.add_argument('--curr-success-threshold', type=gt_0_float, default=0.90, help='Success rate threshold for curriculum training')
     parser.add_argument('--curr-stages', type=gt_0, default=15, help='Number of stages for curriculum training')
 
 if __name__ == "__main__":

@@ -13,6 +13,9 @@ nautical_miles_to_feet = 6076  # ft/nm
 
 from enum import Enum
 
+import logging 
+logger = logging.getLogger("train.model")
+
 class MvaType(Enum):
     """Enumeration of different types of Minimum Vectoring Altitude areas."""
     GENERIC = "Generic"
@@ -56,8 +59,6 @@ def get_wind_speed(x, y, h):
     wind_direction_rad = math.radians(wind_direction)
     wind_x = -wind_speed * math.sin(wind_direction_rad)  # Negative because wind from this direction
     wind_y = -wind_speed * math.cos(wind_direction_rad)
-    
-    # print(f"Wind at ({x:.1f}, {y:.1f}, {h:.0f}ft): {wind_speed:.1f} knots from {wind_direction:.1f}°")
     
     return (wind_x, wind_y)
 
@@ -264,7 +265,7 @@ class Airplane:
         # Calculate headwind component for fuel calculations
         self.headwind = -self.wind_x * math.sin(heading_rad) - self.wind_y * math.cos(heading_rad)
         
-        # print(f"{self.name}: Airspeed={self.v:.1f}kt, Heading={self.phi:.1f}°, Ground Speed={self.ground_speed:.1f}kt, Track={self.track:.1f}°, Headwind={self.headwind:.1f}kt")
+        # logger.debug(f"{self.name}: Airspeed={self.v:.1f}kt, Heading={self.phi:.1f}°, Ground Speed={self.ground_speed:.1f}kt, Track={self.track:.1f}°, Headwind={self.headwind:.1f}kt")
 
     def _autopilot_heading_correction(self):
         """
@@ -327,8 +328,7 @@ class Airplane:
         self.fuel_mass = max(0, self.fuel_mass - fuel_burned)
         self.fuel_remaining_pct = (self.fuel_mass / self.max_fuel) * 100
         
-        # print(f"{self.name}: Fuel={self.fuel_remaining_pct:.1f}%, Consumption={fuel_burned:.3f}kg/s (Base={base_consumption:.3f}, Climb={climb_factor:.1f}, Wind={wind_factor:.1f})")
-        
+
         # Return fuel status
         return self.fuel_mass > 0
 
@@ -352,7 +352,7 @@ class Airplane:
             self.h = max(0, self.h - 500 * self.sim_parameters.timestep)
             # Reduce speed (simplified glide)
             self.v = max(self.v_min, self.v * 0.98)
-            print(f"WARNING: {self.name} is out of fuel! Gliding at {self.v:.1f}kt, descending at 500ft/min")
+            logger.debug(f"WARNING: {self.name} is out of fuel! Gliding at {self.v:.1f}kt, descending at 500ft/min")
         
         # Use track and ground speed for position update instead of heading and airspeed
         track_rad = math.radians(self.track)
@@ -363,8 +363,6 @@ class Airplane:
         # Update position
         self.x += distance * math.sin(track_rad)
         self.y += distance * math.cos(track_rad)
-        
-        # print(f"{self.name}: Position updated to ({self.x:.2f}, {self.y:.2f}, {self.h:.0f}ft)")
         
         return has_fuel
 
@@ -612,7 +610,6 @@ class Airspace:
         for mva in self.mvas:
             # Debug print for inclusion check
             inside = mva.area.covers(point)
-            # print(f"[DEBUG] Checking point ({x}, {y}) in MVA with height {mva.height}: inside={inside}")
             if inside:
                 return mva.height
         raise ValueError(f"Point ({x}, {y}) is outside the defined airspace!")
@@ -633,14 +630,13 @@ class Airspace:
         :return: A shapely Polygon object representing the combined airspace
         """
         polys = [mva.area for mva in self.mvas]
-        print(f"Number of polygons: {len(polys)}")
+        logger.debug(f"Number of polygons: {len(polys)}")
         # check valid polygons
         index = 0
         for poly in polys:
-            print(f"Valid {index}")
             if not poly.is_valid:
-                print(f"Invalid polygon: {poly}")
-                
+                raise ValueError(f"Invalid polygon at index {index}: {poly}") 
+            
             index += 1
         
         combined_poly = shapely.ops.unary_union(polys)

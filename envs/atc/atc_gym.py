@@ -2,6 +2,8 @@
 import math
 import random
 import os
+import logging
+logger = logging.getLogger("train.atc_gym")
 
 import gymnasium as gym
 import numpy as np
@@ -188,10 +190,8 @@ class AtcGym(gym.Env):
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(len(self.normalization_state_min),))
         self.reward_range = (-3000.0, 23000.0)  # Define the min/max possible rewards
 
-        print("Number of airplanes: ", len(self._airplanes))
-        print("Observation space: ", len(self.normalization_state_min))
-        print("Action space: ", len(self.normalization_action_offset))
-
+        logger.info(f"Gymnasium ATC Environment initialized: Airplanes: {len(self._airplanes)}, obs: {len(self.normalization_state_min)}, act: {len(self.normalization_action_offset)}")
+        
         # Initialize trajectory visualization settings
         self.show_trajectories = True  # Default: trajectories enabled
         self.trajectory_colors = [
@@ -217,9 +217,9 @@ class AtcGym(gym.Env):
             self.airplane_image.anchor_y = self.airplane_image.height // 2
             
             self.use_airplane_image = True
-            print(f"Successfully loaded airplane image from {airplane_path}")
+            logger.debug(f"Successfully loaded airplane image from {airplane_path}")
         except Exception as e:
-            print(f"Could not load airplane image from any path. Error: {e}")
+            logger.debug(f"Could not load airplane image from any path. Error: {e}")
             self.use_airplane_image = False
 
     def seed(self, seed=None):
@@ -313,7 +313,7 @@ class AtcGym(gym.Env):
                 fuel_penalty = -10
                 reward += fuel_penalty
                 reward_components["fuel_penalties"] += fuel_penalty
-                print(f"Aircraft {airplane.name} is out of fuel!")
+                logger.debug(f"Aircraft {airplane.name} is out of fuel!")
 
             # Check if airplane is above the MVA (minimum vectoring altitude)
             try:
@@ -326,7 +326,7 @@ class AtcGym(gym.Env):
                     reward = mva_penalty
                     reward_components["mva_penalties"] += mva_penalty
                     dones[c] = True
-                    print(f"Aircraft {airplane.name} has descended below MVA!")
+                    logger.debug(f"Aircraft {airplane.name} has descended below MVA!")
             except ValueError:
                 # Airplane has left the defined airspace - failure
                 self._win_buffer.append(0)
@@ -335,7 +335,7 @@ class AtcGym(gym.Env):
                 reward = airspace_penalty
                 reward_components["airspace_penalties"] += airspace_penalty
                 mva = 0  # Dummy MVA value for the final state
-                # print(f"Aircraft {airplane.name} has left the airspace!")
+                logger.debug(f"Aircraft {airplane.name} has left the airspace!")
 
             # Check if airplane has successfully reached the final approach corridor
             # --- SIMPLIFIED SUCCESS: Only require entering the approach corridor (ignore heading/altitude) ---
@@ -351,8 +351,8 @@ class AtcGym(gym.Env):
                 reward = success_reward
                 reward_components["success_rewards"] += success_reward
                 dones[c] = True
-                print(f"Aircraft {airplane.name} has entered the approach corridor (position only, simplified success)!")
-                print(f"  Fuel bonus: +{fuel_bonus:.2f} | Time bonus: +{time_bonus:.2f}")
+                logger.debug(f"Aircraft {airplane.name} has entered the approach corridor (position only, simplified success)!")
+                logger.debug(f"  Fuel bonus: +{fuel_bonus:.2f} | Time bonus: +{time_bonus:.2f}")
 
             # --- Reward shaping: progress, alignment, circling penalty ---
             if self._sim_parameters.reward_shaping:
@@ -426,7 +426,7 @@ class AtcGym(gym.Env):
             all_fuel_penalty = -50  # was -100
             reward = all_fuel_penalty
             reward_components["fuel_penalties"] += all_fuel_penalty
-            print("All aircraft are out of fuel!")
+            logger.debug("All aircraft are out of fuel!")
         else:
             self.done = all(dones)
 
@@ -436,7 +436,7 @@ class AtcGym(gym.Env):
             reward = time_limit_penalty
             reward_components["time_penalty"] = time_limit_penalty
             self.done = True
-            print("Time limit exceeded!")
+            logger.debug("Time limit exceeded!")
 
         # Get the current observation
         state = self._get_obs(mva)
@@ -450,25 +450,6 @@ class AtcGym(gym.Env):
         # Update tracking metrics
         self._update_metrics(reward)
         
-        # Print detailed reward breakdown
-        # if self.timesteps % 20 == 0 or self.done:  # Print every 20 steps and at episode end
-        #     print("\n" + "="*60)
-        #     print(f"Step {self.timesteps} Reward Breakdown:")
-        #     print("-"*60)
-        #     for component, value in reward_components.items():
-        #         if abs(value) > 0.001:  # Only show non-zero components
-        #             print(f"{component.replace('_', ' ').title()}: {value:.4f}")
-        #     print("-"*60)
-        #     print(f"Total Reward: {reward:.4f}")
-        #     print(f"Total Cumulative Reward: {self.total_reward:.4f}")
-        #     print("="*60 + "\n")
-        
-        # More frequent but compact reward updates
-        if self.timesteps % 5 == 0:
-            significant_rewards = {k: v for k, v in reward_components.items() if abs(v) > 0.001}
-            components_str = " | ".join([f"{k.split('_')[0]}: {v:.2f}" for k, v in significant_rewards.items()])
-            # print(f"Step {self.timesteps}: Reward = {reward:.2f} ({components_str})")
-
         # Gymnasium requires truncated flag (false in this implementation)
         truncated = False
 
@@ -730,7 +711,7 @@ class AtcGym(gym.Env):
             last_action[index] = action_to_take
         except ValueError as e:
             # Invalid action (outside permissible range)
-            # print(f"Warning invalid action: {action_to_take} for index: {index}")
+            logger.debug(f"Warning invalid action: {action_to_take} for index: {index}")
             reward -= 1.0  # Penalty for invalid action
 
         return reward, last_action
@@ -786,8 +767,8 @@ class AtcGym(gym.Env):
             world_size_x = self._world_x_max - self._world_x_min
             world_size_y = self._world_y_max - self._world_y_min
             
-            print(screen_height, screen_width)
-            print(world_size_x, world_size_y)
+            logger.debug(screen_height, screen_width)
+            logger.debug(world_size_x, world_size_y)
             # Calculate the scaling factor to fit the world to the screen
             self._scale = min(
                 (screen_width - 2 * self._padding) / world_size_x,
@@ -1316,8 +1297,10 @@ class AtcGym(gym.Env):
                 available_entrypoints.extend(self._scenario.entrypoints)
             
             # Always use the first entry point and first altitude for each aircraft for deterministic start
-            selected_entrypoints = self._scenario.entrypoints[:self._airplane_count]
+            selected_entrypoints = available_entrypoints[:self._airplane_count]
 
+            # TODO: two planes shouldn't have the same entry point, otherwise they will collide immediately!
+            
             for i in range(self._airplane_count):
                 # Use a different entry point for each aircraft
                 entry_point = selected_entrypoints[i]

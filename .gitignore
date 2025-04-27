@@ -6,3 +6,5 @@ PPO_figs
 
 viz/*
 sb3_logs/*
+
+new_logs/*

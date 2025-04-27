@@ -1,21 +1,11 @@
-from datetime import datetime
-from pathlib import Path
-import os
-import sys
-import numpy as np
-import torch
-import random
-import warnings
+"""
+NOT YET IMPLEMENTED
+"""
 
-warnings.filterwarnings("ignore")
 
-sys.path.append(".")
+def train_dqn(args, reward_keys):
 
-from envs.atc.scenarios import LOWW
-from envs.atc.atc_gym import AtcGym
-import envs.atc.model as model
-from models.DQN import DQNAgent
-
+    raise NotImplementedError("DQN training is not implemented yet.")
 
 def train(
     name,
@@ -28,6 +18,23 @@ def train(
     save_model,
     dqn_params,
 ):
+    from datetime import datetime
+    from pathlib import Path
+    import os
+    import sys
+    import numpy as np
+    import torch
+    import random
+    import warnings
+
+    warnings.filterwarnings("ignore")
+
+    sys.path.append(".")
+
+    from envs.atc.scenarios import LOWW
+    from envs.atc.atc_gym import AtcGym
+    import envs.atc.model as model
+    from models.DQN import DQNAgen
     print("Training DQN agent on environment:", name)
 
     sim_params = model.SimParameters(2.0, discrete_action_space=True)

@@ -1,3 +1,5 @@
+""" FILE IGNORED BY EVERYTHING """
+
 import os
 import sys
 import time

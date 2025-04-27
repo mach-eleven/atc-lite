@@ -21,12 +21,16 @@ except ImportError as e:
     """
     )
 
+pyglet.options['shadow_window'] = False # Disable shadow window for pyglet
+
 import math
 import numpy as np
 
 # Constant to convert radians to degrees
 RAD2DEG = 57.29577951308232  # Value of 180/pi
 
+import logging 
+logger = logging.getLogger("train.my_rendering")
 
 def get_display(spec):
     """
@@ -696,7 +700,8 @@ class PolyLine(Geom):
         try:
             self.v = [(float(x), float(y)) for x, y in self.v]
         except TypeError as e:
-            print(self.v)
+            logger.error("Invalid vertex data type. Ensure vertices are numeric.")
+            logger.error(f"Vertices: {self.v}")
             raise e
         
         # Create and draw Pyglet MultiLine

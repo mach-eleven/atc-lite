@@ -1,41 +1,13 @@
 """
-Runs the PPO algorithm on the code with checkpoint saving.
+NOT YET IMPLEMENTED
 """
 
-from datetime import datetime
-from pathlib import Path
-import warnings
+def train_ppo(args, reward_keys):
+    raise NotImplementedError("PPO training is not implemented yet.")
 
-warnings.filterwarnings("ignore")
-
-import sys
-import time
-import os
-
-from envs.atc import scenarios
-
-# Set Pyglet configurations for macOS
-os.environ["PYGLET_SHADOW_WINDOW"] = "0"
-
-# Add the parent directory to sys.path
-sys.path.append(".")
-from rich import print
-
-import gymnasium as gym
-import numpy as np
-from envs.atc.atc_gym import AtcGym
-import envs.atc.model as model
-import math
-import envs
-
-import torch
-from torch import multiprocessing
-
-from collections import defaultdict
-from tqdm import tqdm
-
-from models.PPO import PPO
-
+"""
+Runs the PPO algorithm on the code with checkpoint saving.
+"""
 
 def train(
     name,
@@ -53,6 +25,40 @@ def train(
     save_model,
     ppo_params,
 ):
+    
+    from datetime import datetime
+    from pathlib import Path
+    import warnings
+
+    warnings.filterwarnings("ignore")
+
+    import sys
+    import time
+    import os
+
+    from envs.atc import scenarios
+
+    # Set Pyglet configurations for macOS
+    os.environ["PYGLET_SHADOW_WINDOW"] = "0"
+
+    # Add the parent directory to sys.path
+    sys.path.append(".")
+    from rich import print
+
+    import gymnasium as gym
+    import numpy as np
+    from envs.atc.atc_gym import AtcGym
+    import envs.atc.model as model
+    import math
+    import envs
+
+    import torch
+    from torch import multiprocessing
+
+    from collections import defaultdict
+    from tqdm import tqdm
+
+    from models.PPO import PPO
     """
     Train the PPO agent on the specified environment.
     """
@@ -63,10 +69,6 @@ def train(
     # Adjust initial action standard deviation to be more conservative
     action_std = 0.3  # Start with smaller actions to keep aircraft in bounds
 
-<<<<<<< HEAD
-    # TODO: DOESNT LISTEN TO HEADLESS
-
-=======
     # Use a longer max episode length to give more time for learning
     max_ep_len = 2000
 

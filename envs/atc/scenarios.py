@@ -9,6 +9,9 @@ import numpy as np
 from . import model
 import random
 
+import logging 
+logger = logging.getLogger("train.scenarios")
+
 class Scenario:
     """
     Base class for air traffic control scenarios.
@@ -380,7 +383,6 @@ class LOWW(Scenario):
 
         
         minx, miny, maxx, maxy = self.airspace.get_bounding_box()
-        # print(minx, miny, maxx, maxy)
         self.wind = model.Wind((ceil(minx), ceil(maxx), ceil(miny), ceil(maxy)))
 
     def generate_aircraft(self, count, bounds):
@@ -2655,7 +2657,7 @@ class SupaSupa(Scenario):
         bounds = self.airspace.get_bounding_box()
         min_x, max_x = bounds[0], bounds[2]
         min_y, max_y = bounds[1], bounds[3]
-        print(f"Airspace bounds: {bounds}")
+        logger.debug(f"Airspace bounds: {bounds}")
         self.wind = model.Wind((min_x, max_x, min_y, max_y))
 
         # Define entry points where aircraft enter the simulation
@@ -2686,7 +2688,7 @@ class SupaSupa(Scenario):
                 levels = [130, 150, 170, 190, 210, 230]
                 self.entrypoints.append(model.EntryPoint(x, y, heading, levels))
         else:
-            self.entrypoints = [fixed_entrypoint]
+            self.entrypoints = [fixed_entrypoint] 
 
     def generate_aircraft(self, count, bounds):
         """Generate aircraft with safer initial positions"""

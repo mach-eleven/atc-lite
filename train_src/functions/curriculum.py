@@ -187,7 +187,8 @@ def train_curriculum(args, reward_keys):
 
             # Save model and log at end of stage
             model_.save(model_path)
-            plotter.save(stage_dir)
+            if args.live_plot:
+                plotter.save(stage_dir)
             with open(stage_dir / f"training_log_{stage_name}.csv", "a") as f:
                 writer = csv.writer(f)
                 writer.writerow(["final", eval_rewards] + [eval_components[k] for k in reward_keys])

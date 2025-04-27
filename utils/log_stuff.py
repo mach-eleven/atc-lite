@@ -140,6 +140,8 @@ class RewardPlotter:
     def save(self, outdir):
         # Save reward curves as PNG and CSV
         png_path = os.path.join(outdir, 'reward_components.png')
+        # increase dpi to 300
+        self.fig.savefig(png_path, dpi=300)
         self.fig.savefig(png_path)
 
     def close(self):

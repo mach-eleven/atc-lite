@@ -201,7 +201,7 @@ class AtcGym(gym.Env):
             (255, 0, 255),  # Magenta
             (0, 255, 0)     # Green
         ]
-        self.max_trail_length = 500  # Maximum number of history points to render
+        self.max_trail_length = 90000000  # Maximum number of history points to render
         
         # Load airplane images in different colors to match trajectory colors
         script_dir = os.path.dirname(os.path.abspath(__file__))

@@ -55,7 +55,7 @@ class AtcGym(gym.Env):
         "render_fps": 50
     }
 
-    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array'):
+    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5):
         """
         Initialize the ATC gym environment
         
@@ -64,9 +64,11 @@ class AtcGym(gym.Env):
             sim_parameters: Simulation parameters like timestep size
             scenario: The airspace scenario to use (runways, MVAs, etc.)
             render_mode: 'human' for window rendering, 'rgb_array' for array output, 'headless' for no rendering
+            wind_badness: How strong and turbulent the wind should be (0-10)
         """
 
         self._airplane_count = airplane_count
+        self._wind_badness = wind_badness  # Store the wind badness parameter
 
         self.render_mode = render_mode
         
@@ -305,7 +307,8 @@ class AtcGym(gym.Env):
 
 
             # Update the airplane position based on its current state
-            has_fuel = airplane.step()
+            # Pass airspace and wind_badness to the update_wind method
+            has_fuel = airplane.step(self._airspace, self._wind_badness)
             
             # Check if airplane is out of fuel
             if not has_fuel:

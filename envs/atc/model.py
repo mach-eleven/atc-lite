@@ -27,35 +27,77 @@ class MvaType(Enum):
 
 
 # Function to get wind speed at a given location and altitude
-def get_wind_speed(x, y, h):
+def get_wind_speed(x, y, h, mva_type=None, badness=5):
     """
-    Get wind speed at a given location and altitude.
+    Get wind speed at a given location and altitude based on terrain type.
     
     Args:
         x, y: Position in nautical miles
         h: Altitude in feet
+        mva_type: Type of Minimum Vectoring Altitude area (affects wind pattern)
+        badness: Wind intensity factor (0-10)
         
     Returns:
         Tuple (wind_x, wind_y) in knots
     """
-    # Base wind from west (270°) with slight randomization
-    # REDUCED wind strength from 10 to 5 knots
-    base_wind_speed = 5 + random.uniform(-2, 2)  # Base wind in knots
+    # Scale factor based on badness parameter (0-10)
+    badness_factor = badness / 5.0  # Scale to make 5 the "normal" intensity
+    
+    # Base wind - predominately from west (270°) - no randomization for determinism
+    base_wind_speed = 5 * badness_factor
     
     # Wind increases with altitude (logarithmic increase)
-    altitude_factor = 1.0 + 0.1 * math.log(max(1, h / 1000))  # Reduced from 0.2 to 0.1
+    altitude_factor = 1.0 + 0.1 * math.log(max(1, h / 1000))
     
-    # Positional variations (create some gradient across the airspace)
-    x_variation = math.sin(x * 0.1) * 2  # Reduced from 5 to 2
-    y_variation = math.cos(y * 0.1) * 2  # Reduced from 5 to 2
+    # Deterministic positional variations using sine/cosine functions
+    # These create a gradient across the airspace
+    x_variation = math.sin(x * 0.1) * 2 * badness_factor
+    y_variation = math.cos(y * 0.1) * 2 * badness_factor
     
-    # Add some randomization
-    x_variation += random.uniform(-1, 1)  # Reduced from -2, 2 to -1, 1
-    y_variation += random.uniform(-1, 1)  # Reduced from -2, 2 to -1, 1
+    wind_speed = base_wind_speed * altitude_factor
+    wind_direction = 270  # Default wind from west
     
-    # Wind from west (270°) - using meteorological convention
-    wind_speed = base_wind_speed * altitude_factor + x_variation + y_variation
-    wind_direction = 270 + y_variation  # Slight directional shift based on position
+    # Apply terrain-specific wind adjustments based on MVA type
+    if mva_type:
+        if mva_type == MvaType.MOUNTAINOUS:
+            # Mountains cause updrafts, turbulence and flow distortion
+            # Wind tends to flow around mountains and accelerate through passes
+            mountain_effect = math.sin(x * 0.3 + y * 0.2) * 3.0 * badness_factor
+            wind_speed += mountain_effect
+            # Wind direction shifts more dramatically near mountains
+            wind_direction += math.sin(x * 0.2) * 15 * badness_factor
+            
+            # Add vertical wind component (useful for future expansions)
+            # Positive values near the upwind side, negative on the downwind side
+            vertical_flow = math.sin(x * 0.5 + y * 0.3) * 5 * badness_factor
+            
+        elif mva_type == MvaType.OCEANIC:
+            # Ocean winds tend to be steadier but can still have patterns
+            # Reduced small-scale turbulence
+            ocean_effect = math.sin(x * 0.05 + y * 0.05) * 1.5 * badness_factor
+            wind_speed += ocean_effect
+            # More consistent direction over ocean
+            wind_direction += math.sin(y * 0.1) * 5 * badness_factor
+            
+        elif mva_type == MvaType.WEATHER:
+            # Weather systems create more chaotic, stronger winds
+            weather_effect = (math.sin(x * 0.25) * math.cos(y * 0.25)) * 4.0 * badness_factor
+            wind_speed += weather_effect
+            # Wind direction shifts more in weather systems
+            wind_direction += math.sin(x * 0.1 + y * 0.1) * 20 * badness_factor
+            
+            # Simulate gusts with deterministic pseudo-random pattern
+            gust_factor = math.sin(x * 0.7 + y * 0.9) * 3.0 * badness_factor
+            wind_speed += max(0, gust_factor)
+            
+        elif mva_type == MvaType.GENERIC:
+            # Generic terrain has moderate effects
+            generic_effect = math.sin(x * 0.15 + y * 0.15) * 1.0 * badness_factor
+            wind_speed += generic_effect
+            wind_direction += math.sin(y * 0.05) * 10 * badness_factor
+    
+    # Ensure wind speed is non-negative
+    wind_speed = max(0, wind_speed)
     
     # Convert to vector components (wind from direction)
     wind_direction_rad = math.radians(wind_direction)
@@ -233,12 +275,28 @@ class Airplane:
         # Apply the constrained heading change, keeping within 0-360 range
         self.phi = (self.phi + delta_phi) % 360
 
-    def update_wind(self):
+    def update_wind(self, airspace=None, wind_badness=5):
         """
-        Update wind components based on current position.
+        Update wind components based on current position and terrain type.
+        
+        Args:
+            airspace: Airspace object containing MVAs
+            wind_badness: Wind intensity factor (0-10)
         """
-        # Call the wind function
-        wind_vector = get_wind_speed(self.x, self.y, self.h)
+        mva_type = None
+        
+        # If we have airspace info, determine the MVA type at the current position
+        if airspace:
+            try:
+                # Find which MVA we're in and get its type
+                mva = airspace.find_mva(self.x, self.y)
+                mva_type = mva.mva_type
+            except ValueError:
+                # Outside airspace, use generic wind
+                mva_type = MvaType.GENERIC
+        
+        # Call the enhanced wind function with MVA type and badness
+        wind_vector = get_wind_speed(self.x, self.y, self.h, mva_type, wind_badness)
         self.wind_x = wind_vector[0]
         self.wind_y = wind_vector[1]
         
@@ -334,13 +392,21 @@ class Airplane:
         # Return fuel status
         return self.fuel_mass > 0
 
-    def step(self):
-        """Updates the aircraft's position based on wind-affected ground speed and track."""
+    def step(self, airspace=None, wind_badness=5):
+        """Updates the aircraft's position based on wind-affected ground speed and track.
+        
+        Args:
+            airspace: Airspace object containing MVAs for terrain-based wind effects
+            wind_badness: How strong and turbulent the wind should be (0-10)
+        
+        Returns:
+            Boolean indicating if the aircraft still has fuel
+        """
         # Record the current position in history
         self.position_history.append((self.x, self.y))
         
-        # Update wind at current position
-        self.update_wind()
+        # Update wind at current position with terrain information
+        self.update_wind(airspace, wind_badness)
         
         # Apply heading correction to better align with track (simulates autopilot)
         self._autopilot_heading_correction()

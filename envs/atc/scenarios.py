@@ -14,6 +14,8 @@ import logging
 logger = logging.getLogger("train.scenarios")
 logger.setLevel(logging.INFO)
 
+MvaType = model.MvaType
+
 class Scenario:
     """
     Base class for air traffic control scenarios.
@@ -230,7 +232,7 @@ class LOWW(Scenario):
                 (46.08, 22.36),
                 (42.47, 16),
                 (27.26, 20.01)
-            ]), 3700),
+            ]), 3700, MvaType.WEATHER),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (26.37, 21.35),
                 (13.15, 38.60),
@@ -238,7 +240,7 @@ class LOWW(Scenario):
                 (22.0, 30.65),
                 (29.73, 26.39),
                 (26.37, 21.35)
-            ]), 5700),
+            ]), 5700, MvaType.MOUNTAINOUS),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (29.73, 26.39),
                 (22.0, 30.65),
@@ -248,14 +250,14 @@ class LOWW(Scenario):
                 (18.75, 44.98),
                 (28.83, 31.09),
                 (29.73, 26.39)
-            ]), 4600),
+            ]), 4600, MvaType.WEATHER),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (28.83, 31.09),
                 (18.75, 44.98),
                 (22.0, 45.68),
                 (26.37, 43.08),
                 (28.83, 31.09)
-            ]), 4100),
+            ]), 4100, MvaType.WEATHER),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (28.83, 31.09),
                 (28.83, 33.45),
@@ -263,7 +265,7 @@ class LOWW(Scenario):
                 (29.73, 41.29),
                 (26.9, 40.47),
                 (28.83, 31.09)
-            ]), 4000),
+            ]), 4000, MvaType.WEATHER),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (22.0, 45.68),
                 (18.75, 44.98),
@@ -278,7 +280,7 @@ class LOWW(Scenario):
                 (16.17, 50.25),
                 (23.23, 49.01),
                 (22.0, 45.68)
-            ]), 3500),
+            ]), 3500, MvaType.GENERIC),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (46.08, 22.36),
                 (34.32, 25.55),
@@ -286,7 +288,7 @@ class LOWW(Scenario):
                 (36.22, 35.46),
                 (44.46, 31.76),
                 (46.08, 22.36)
-            ]), 3000),
+            ]), 3000, MvaType.GENERIC),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (31.5, 28.4),
                 (28.83, 31.09),
@@ -305,7 +307,7 @@ class LOWW(Scenario):
                 (37.56, 36.69),
                 (36.22, 35.46),
                 (31.5, 28.4)
-            ]), 3500),
+            ]), 3500, MvaType.GENERIC),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (35.14, 41.62),
                 (32.19, 44.98),
@@ -321,7 +323,7 @@ class LOWW(Scenario):
                 (38.46, 53.72),
                 (34.32, 45.68),
                 (35.14, 41.62)
-            ]), 3200),
+            ]), 3200, MvaType.GENERIC),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (46.08, 22.36),
                 (44.95, 28.91),
@@ -345,7 +347,7 @@ class LOWW(Scenario):
                 (52.88, 18.68),
                 (51.64, 21.35),
                 (46.08, 22.36)
-            ]), 2700),
+            ]), 2700, MvaType.OCEANIC),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (44.95, 28.91),
                 (44.46, 31.76),
@@ -360,7 +362,7 @@ class LOWW(Scenario):
                 (57.97, 41.89),
                 (53.5, 31.43),
                 (44.95, 28.91)
-            ]), 2600)]
+            ]), 2600, MvaType.OCEANIC)]
 
         self.runway = model.Runway(45.16, 43.26, 586, 160)
 

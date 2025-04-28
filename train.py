@@ -43,6 +43,7 @@ def add_arguments(parser):
     parser.add_argument('--curr-window-size', type=gt_0, default=50, help='Window size for success rate check in curriculum training')
     parser.add_argument('--curr-success-threshold', type=gt_0_float, default=0.90, help='Success rate threshold for curriculum training')
     parser.add_argument('--curr-stages', type=gt_0, default=100, help='Number of stages for curriculum training')
+    parser.add_argument('--wind-badness', type=int, choices=range(0, 11), default=5, help='How strong and turbulent the wind should be (0-10)')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

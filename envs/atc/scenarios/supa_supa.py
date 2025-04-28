@@ -8,6 +8,7 @@ from .. import model
 from .scenarios import Scenario
 
 import shapely.geometry as shape
+import math
 from math import ceil
 
 import random

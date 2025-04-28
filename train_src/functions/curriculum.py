@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 logger = logging.getLogger("train.curriculum")
 logger.setLevel(logging.INFO)
 
-def train_curriculum(args, reward_keys):
+def train_curriculum(args, reward_keys, scenario=None, num_airplanes=1):
 
     log_info("CURR with PPO", args, logger)
 
@@ -32,13 +32,17 @@ def train_curriculum(args, reward_keys):
 
     def my_env(curriculum_entry_point):
         return AtcGym(
-            airplane_count=1,
+            airplane_count=num_airplanes,
             sim_parameters=model.SimParameters(
                 1.0, discrete_action_space=False, normalize_state=True
             ),
             scenario=scenarios.SupaSupa(entry_point=curriculum_entry_point),
             render_mode="headless",
+            wind_badness=args.wind_badness
         )
+    
+    logger.info(f"Training with {num_airplanes} airplanes in curriculum learning")
+    logger.info(f"="*80)
 
     curriculum_entry_points = scenarios.SupaSupa().generate_curriculum_entrypoints(num_entrypoints=args.curr_stages) # generates based on default entrypoints
 

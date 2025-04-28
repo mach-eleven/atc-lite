@@ -15,7 +15,7 @@ from utils.train_test_functions import train_model
 logger = logging.getLogger("train.sb3_ppo")
 logger.setLevel(logging.INFO)
 
-def train_sb3_ppo(args, reward_keys):
+def train_sb3_ppo(args, reward_keys, scenario=None, num_airplanes=1):
 
     eval_log_path_csv, flog_path, tensorboard_logd, tb_logger, plotter = set_log_paths(args, reward_keys)
     log_info("SB3 PPO", args, logger)
@@ -23,16 +23,18 @@ def train_sb3_ppo(args, reward_keys):
     """ Create the environment """
     def my_env():
         return AtcGym(
-            airplane_count=1,
+            airplane_count=num_airplanes,
             sim_parameters=model.SimParameters(
                 1.0, discrete_action_space=False, normalize_state=True
             ),
-            scenario=scenarios.SupaSupa(),
+            scenario=scenario if scenario else scenarios.SupaSupa(),
             render_mode="headless",
+            wind_badness=args.wind_badness
         )
         
     env = my_env()
     vec_env = make_vec_env(my_env, n_envs=args.threads, vec_env_cls=SubprocVecEnv)
+    logger.info(f"Training with {num_airplanes} airplanes in scenario: {scenario.__class__.__name__ if scenario else 'SupaSupa'}")
     logger.info(f"="*80)
 
     # Load from checkpoint if provided, else create new model

@@ -117,6 +117,8 @@ def parse_args():
                        help='Render every N steps (only applies in non-headless mode)')
     parser.add_argument('--wind-scale', type=float, default=2.0,
                        help='Wind scale factor (higher = stronger winds)')
+    parser.add_argument('--wind-badness', type=int, default=5, choices=range(0, 11),
+                       help='How strong and turbulent the wind should be (0-10)')
     parser.add_argument('--autopilot', action='store_true', default=True,
                        help='Enable autopilot heading correction')
     parser.add_argument('--no-autopilot', action='store_false', dest='autopilot',
@@ -185,6 +187,7 @@ def main():
         sim_parameters=sim_params, 
         scenario=SupaSupa(curr_entry_points[args.curr_stage_entry_point - 1]),
         render_mode=render_mode,
+        wind_badness=args.wind_badness
     )
 
     # Reset the environment

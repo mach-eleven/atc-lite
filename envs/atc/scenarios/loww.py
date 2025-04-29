@@ -344,7 +344,8 @@ class LOWW(Scenario):
         max_distance = math.sqrt(dx_max**2 + dy_max**2)
         
         # Default flight level if we can't determine MVA
-        default_altitude = 6000  # feet
+        default_altitude = 15000  # feet - corresponds to FL150
+        default_flight_level = 150  # Flight level 150 = 15,000 feet
         
         # Create circles with increasing radii from runway
         circles = []
@@ -375,16 +376,16 @@ class LOWW(Scenario):
                     # Find the minimum vectoring altitude at this position
                     mva_height = self.airspace.get_mva_height(x, y)
                     # Add a safety margin (e.g., 500 feet above MVA)
-                    safe_altitude = mva_height + 500
+                    safe_altitude = mva_height + 50
+                    # Calculate flight level (divide by 100)
+                    safe_flight_level = math.ceil(safe_altitude / 100) * 10
                 except ValueError:
                     # If point is outside defined airspace, use default altitude
                     logger.warning(f"Entry point ({x}, {y}) is outside airspace, using default altitude")
-                    safe_altitude = default_altitude
+                    safe_flight_level = default_flight_level
                 
-                # Use the calculated safe altitude for flight levels
-                # Round to nearest 100 feet for standard flight levels
-                safe_flight_level = math.ceil(safe_altitude / 100) * 10
-                
+                if safe_flight_level > 380:
+                    safe_flight_level = 350
                 # Create entry point with heading toward runway and safe altitude
                 runway_heading_entry = model.EntryPoint(x, y, heading_to_runway, [safe_flight_level])
                 
@@ -398,7 +399,7 @@ class LOWW(Scenario):
                 circle_entries.append(offset_heading_entry)
             
             circles.append(circle_entries)
-        
+        # logger.info([x.levels for x in [entry for circle in circles for entry in circle]])
         return circles
 
 class ModifiedLOWW(LOWW):

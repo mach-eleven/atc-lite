@@ -4,7 +4,7 @@ import time
 import os
 import argparse
 
-from envs.atc.scenarios import LOWW, SupaSupa, SuperSimple
+from envs.atc.scenarios import LOWW, SupaSupa, SuperSimple, ModifiedLOWW
 
 # Set Pyglet configurations for macOS
 os.environ['PYGLET_SHADOW_WINDOW'] = '0'
@@ -128,8 +128,10 @@ def parse_args():
     parser.add_argument('--curr-stage-entry-point', type=int, default=15,
                           help='Curriculum stage to use (1 = closest, ... N = farthest)')
     parser.add_argument('--pause-frame', action='store_true', default=False)
-    parser.add_argument('--scenario', type=str, choices=['LOWW', 'SupaSupa', 'SuperSimple'], default='LOWW',
+    parser.add_argument('--scenario', type=str, default='ModifiedLOWW',
                        help='Scenario to use for simulation (default: LOWW)')
+    parser.add_argument('--wind-dirn', type=float, default=270,
+                       help='Wind direction in degrees (0 = North, 90 = East, etc.)')
     return parser.parse_args()
 
 def main():
@@ -180,6 +182,9 @@ def main():
     elif args.scenario == 'SuperSimple':
         scenario_class = SuperSimple
         scenario_instance = SuperSimple()
+    elif args.scenario == 'ModifiedLOWW':
+        scenario_class = ModifiedLOWW
+        scenario_instance = ModifiedLOWW()
     
     print(f"Selected scenario: {args.scenario}")
     
@@ -189,7 +194,8 @@ def main():
         sim_parameters=sim_params, 
         scenario=scenario_instance,
         render_mode=render_mode,
-        wind_badness=args.wind_badness
+        wind_badness=args.wind_badness,
+        wind_dirn=args.wind_dirn,
     )
 
     # Reset the environment

@@ -55,7 +55,7 @@ class AtcGym(gym.Env):
         "render_fps": 50
     }
 
-    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5):
+    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5, wind_dirn=270):
         """
         Initialize the ATC gym environment
         
@@ -69,7 +69,8 @@ class AtcGym(gym.Env):
 
         self._airplane_count = airplane_count
         self._wind_badness = wind_badness  # Store the wind badness parameter
-
+        self._wind_dirn = wind_dirn
+        # print(f"Wind badness: {self._wind_badness} | Wind direction: {self._wind_dirn}")
         self.render_mode = render_mode
         
         # Use a default scenario if none provided
@@ -308,7 +309,7 @@ class AtcGym(gym.Env):
 
             # Update the airplane position based on its current state
             # Pass airspace and wind_badness to the update_wind method
-            has_fuel = airplane.step(self._airspace, self._wind_badness)
+            has_fuel = airplane.step(self._airspace, self._wind_badness, self._wind_dirn)
             
             # Check if airplane is out of fuel
             if not has_fuel:
@@ -1191,7 +1192,7 @@ class AtcGym(gym.Env):
                 except ValueError:
                     mva_type = model.MvaType.GENERIC
                 
-                wind_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness)
+                wind_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness, self._wind_dirn)
                 wind_speed = np.linalg.norm(wind_vector)
                 max_wind_speed = max(max_wind_speed, wind_speed)
         
@@ -1207,7 +1208,7 @@ class AtcGym(gym.Env):
                     mva_type = model.MvaType.GENERIC
                 
                 # Get wind vector at starting point
-                start_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness)
+                start_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness,  self._wind_dirn)
                 wind_speed = np.linalg.norm(start_vector)
                 
                 # Skip areas with negligible wind
@@ -1257,7 +1258,7 @@ class AtcGym(gym.Env):
                         except ValueError:
                             mva_type = model.MvaType.GENERIC
                         
-                        next_vector = model.get_wind_speed(int(current_x), int(current_y), 20_000, mva_type, self._wind_badness)
+                        next_vector = model.get_wind_speed(int(current_x), int(current_y), 20_000, mva_type, self._wind_badness,  self._wind_dirn)
                         next_wind_speed = np.linalg.norm(next_vector)
                         
                         # Update unit vector (creates the curve effect)
@@ -1442,7 +1443,7 @@ class AtcGym(gym.Env):
             center_x = (self._world_x_min + self._world_x_max) / 2
             center_y = (self._world_y_min + self._world_y_max) / 2
             
-            self._airplanes = []
+            self._airplanes: list[model.Airplane] = []
             self._d_fafs = []
             self._phi_rel_fafs = []
             self._phi_rel_runways = []

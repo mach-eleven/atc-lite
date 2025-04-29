@@ -27,7 +27,7 @@ def add_arguments(parser):
     """
     Add command line arguments for training.
     """
-    parser.add_argument('--model', type=str, default='ppo_sb3', choices=['curr', 'ppo_sb3', 'ppo', 'dqn'], help='RL algorithm to use')
+    parser.add_argument('--model', type=str, default='ppo_sb3', choices=['curr', 'ppo_sb3', 'ppo', 'dqn', 'gen'], help='RL algorithm to use')
     parser.add_argument('--num-airplanes', type=gt_0, default=1, help='Number of airplanes to train with')
     parser.add_argument('--scenario', type=str, default='SupaSupa', help='Scenario to use for training')
     parser.add_argument('--checkpoint', type=checkpoint_type, default=None, help='Path to SB3 PPO checkpoint to resume training from.')
@@ -91,6 +91,9 @@ if __name__ == "__main__":
         case 'curr':
             from train_src.functions import train_curriculum
             train_curriculum(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
+        case 'gen':
+            from train_src.functions import train_generalized_model
+            train_generalized_model(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
         case 'ppo_sb3':
             from train_src.functions import train_sb3_ppo
             train_sb3_ppo(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)

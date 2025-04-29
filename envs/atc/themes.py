@@ -14,3 +14,11 @@ class ColorScheme:
     wind = [255, 255, 255, 80]
     wind_arrow_base = [0, 255, 0, 80]
     mva_height_colormap = colormaps.get_cmap('viridis')
+    # Generic MVA areas (cyan with 40% opacity)
+    generic_mva_color = [0, 255, 255, 80]  # Cyan, moderate opacity
+    # Mountainous areas (earthy red with 60% opacity)
+    mountainous_mva_color = [180, 60, 30, 150]  # Reddish-brown, higher opacity for mountains
+    # Weather zones (blue with 30% opacity)
+    weather_mva_color = [30, 144, 255, 150]  # Dodger blue, lower opacity for weather
+    # Oceanic areas (deep blue with 50% opacity)s
+    oceanic_mva_color = [0, 105, 148, 150]  # Deep blue, medium opacity

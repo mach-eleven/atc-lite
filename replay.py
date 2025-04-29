@@ -142,6 +142,11 @@ def add_arguments(parser):
         help="Save the last episode replay as an MP4 file.",
         default=False,
     )
+    parser.add_argument(
+        "--random-entry",   
+        action="store_true", help="Use random entry points for airplanes", default=False
+        
+    )
 
 
 if __name__ == "__main__":

@@ -1208,7 +1208,21 @@ class AtcGym(gym.Env):
             fill = rendering.FilledPolygon(coordinates)
             # based on height, choose color from ColorScheme.mva_height_colormap which is a matplotlib linear colormap
             norm_height_btn_0_1 = mva.height / MAX_MVA_HEIGHT_FOR_VISUALIZATION
-            color = [int(x*255) for x in ColorScheme.mva_height_colormap(norm_height_btn_0_1)]
+
+            color = None
+            match mva.mva_type:
+                case model.MvaType.GENERIC:
+                    color = ColorScheme.generic_mva_color
+                case model.MvaType.MOUNTAINOUS:
+                    color = ColorScheme.mountainous_mva_color
+                case model.MvaType.WEATHER:
+                    color = ColorScheme.weather_mva_color
+                case model.MvaType.OCEANIC:
+                    color = ColorScheme.oceanic_mva_color
+            
+            # color = ColorScheme.mva_height_colormap(norm_height_btn_0_1)
+            # color = [int(x*255) for x in ColorScheme.mva_height_colormap(norm_height_btn_0_1)]
+
             fill.set_color_opacity(*color)
             self.viewer.add_geom(fill)
 

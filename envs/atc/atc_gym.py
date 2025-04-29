@@ -194,7 +194,7 @@ class AtcGym(gym.Env):
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(len(self.normalization_state_min),))
         self.reward_range = (-3000.0, 23000.0)  # Define the min/max possible rewards
 
-        logger.info(f"Gymnasium ATC Environment initialized: Airplanes: {len(self._airplanes)}, obs: {len(self.normalization_state_min)}, act: {len(self.normalization_action_offset)}")
+        # logger.info(f"Gymnasium ATC Environment initialized: Airplanes: {len(self._airplanes)}, obs: {len(self.normalization_state_min)}, act: {len(self.normalization_action_offset)}")
         
         # Initialize trajectory visualization settings
         self.show_trajectories = True  # Default: trajectories enabled

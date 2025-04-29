@@ -343,6 +343,9 @@ class LOWW(Scenario):
         dy_max = ref_y - runway_threshold_coords[1]
         max_distance = math.sqrt(dx_max**2 + dy_max**2)
         
+        # Default flight level if we can't determine MVA
+        default_altitude = 6000  # feet
+        
         # Create circles with increasing radii from runway
         circles = []
         for i in range(num_entrypoints):
@@ -367,13 +370,28 @@ class LOWW(Scenario):
                 dy_to_runway = runway_threshold_coords[1] - y
                 heading_to_runway = (math.degrees(math.atan2(dy_to_runway, dx_to_runway)) + 90) % 360
                 
-                # Create entry point with heading toward runway
-                runway_heading_entry = model.EntryPoint(x, y, heading_to_runway, [150])
+                # Get MVA at this position to ensure we start at a safe altitude
+                try:
+                    # Find the minimum vectoring altitude at this position
+                    mva_height = self.airspace.get_mva_height(x, y)
+                    # Add a safety margin (e.g., 500 feet above MVA)
+                    safe_altitude = mva_height + 500
+                except ValueError:
+                    # If point is outside defined airspace, use default altitude
+                    logger.warning(f"Entry point ({x}, {y}) is outside airspace, using default altitude")
+                    safe_altitude = default_altitude
+                
+                # Use the calculated safe altitude for flight levels
+                # Round to nearest 100 feet for standard flight levels
+                safe_flight_level = math.ceil(safe_altitude / 100) * 100
+                
+                # Create entry point with heading toward runway and safe altitude
+                runway_heading_entry = model.EntryPoint(x, y, heading_to_runway, [safe_flight_level])
                 
                 # Create second version with a slightly offset heading (e.g., +30 degrees)
                 offset_angle = 30
                 offset_heading = (heading_to_runway + offset_angle) % 360
-                offset_heading_entry = model.EntryPoint(x, y, offset_heading, [150])
+                offset_heading_entry = model.EntryPoint(x, y, offset_heading, [safe_flight_level])
                 
                 # Add both entry points to the circle
                 circle_entries.append(runway_heading_entry)
@@ -537,4 +555,3 @@ class ModifiedLOWW(LOWW):
             ]), 2500, MvaType.GENERIC)]
 
         self.airspace = model.Airspace(self.mvas, self.runway)
-        

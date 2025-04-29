@@ -103,7 +103,7 @@ def add_arguments(parser):
     parser.add_argument(
         "--skip-frames",
         type=gt_0,
-        default=100,
+        default=1,
         help="Render every Nth frame (default: 1, i.e., no skipping)",
     )
     parser.add_argument(
@@ -112,6 +112,28 @@ def add_arguments(parser):
         help="Enable debug mode, i.e. stdout logging.",
         default=False,
     )
+    parser.add_argument(
+        "--episodes",
+        type=gt_0,
+        default=5,
+        help="Number of episodes to run the replay",
+    )
+    parser.add_argument(
+        "--sleep",
+        type=float,
+        default=0.05,
+        help="Sleep time between frames (for rendering)",
+    )
+    parser.add_argument(
+        "--scenario",
+        type=str,
+        default="SupaSupa",
+        help="Scenario to use for demonstration",
+    )
+    parser.add_argument(
+        "--num-airplanes", type=gt_0, default=1, help="Number of airplanes to demo with"
+    )
+    parser.add_argument('--pause-frame', action='store_true', default=True)
 
 
 if __name__ == "__main__":
@@ -134,34 +156,61 @@ if __name__ == "__main__":
         case "dqn":
             raise NotImplementedError("DQN replay is not implemented yet.")
 
+    from envs.atc import scenarios
+
+    # Load the specified scenario
+    logger.info(f"Using scenario: {args.scenario} with {args.num_airplanes} airplanes")
+
+    # Create scenario instance based on scenario name
+    try:
+        scenario_class = getattr(scenarios, args.scenario)
+    except AttributeError:
+        logger.error(f"Scenario {args.scenario} not found in envs.atc.scenarios.")
+        sys.exit(1)
+    if args.scenario in ["SimpleScenario", "SuperSimple", "LOWW"]:
+        scenario = scenario_class(random_entrypoints=args.random_entry)
+    elif args.scenario == "CurriculumTrainingScenario":
+        scenario = scenario_class()  # Uses default entry points
+    else:
+        scenario = scenario_class()
+
     entry_point = validate_and_get_entry_point(
         args.entry, args.heading, args.level, args.curr_stage_entry_point
     )
 
     env = AtcGym(
-        airplane_count=1,
+        airplane_count=args.num_airplanes,
         sim_parameters=model.SimParameters(
             1.0, discrete_action_space=False, normalize_state=True
         ),
-        scenario=scenarios.SupaSupa(entry_point=entry_point),
+        scenario=scenario,
         render_mode="human",
     )
     model_ = PPO.load(
         args.checkpoint,
-        env)
-    
-    # model_state_dict = torch.load(args.checkpoint, map_location="cpu")
-    # fixed_state_dict = {k.replace("_orig_mod.", ""): v for k, v in model_state_dict['policy'].items()}
-    # model_.policy.load_state_dict(fixed_state_dict)
-    
-    obs = env.reset()[0]
-    done = False
-    frame_count = 0
-    while not done:
-        action, _ = model_.predict(obs, deterministic=True)
-        obs, reward, done, truncated, info = env.step(action)
-        frame_count += 1
-        if frame_count % args.skip_frames == 0:
-            env.render()
-            time.sleep(0.05)
+        env,
+    )
+
+    for ep in range(args.episodes):
+        obs, _ = env.reset()
+        done = False
+        frame_count = 0
+        total_reward = 0
+        while not done:
+            action, _ = model_.predict(obs, deterministic=True)
+            obs, reward, done, truncated, info = env.step(action)
+            frame_count += 1
+            # done = done or truncated # why?
+            total_reward += reward
+            if frame_count % args.skip_frames == 0:
+                env.render()
+                time.sleep(args.sleep)
+            if done:
+                env.render()
+                break
+        
+            logger.info(f"Episode {ep+1}, Frame {frame_count}: Action: {action}, Reward: {reward}")
+        logger.info(f"Episode {ep+1}: Total Reward = {total_reward}")
+        if args.pause_frame:
+            input("Press Enter to continue...")
     env.close()

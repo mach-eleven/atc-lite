@@ -145,7 +145,6 @@ def add_arguments(parser):
     parser.add_argument(
         "--random-entry",   
         action="store_true", help="Use random entry points for airplanes", default=False
-        
     )
 
 

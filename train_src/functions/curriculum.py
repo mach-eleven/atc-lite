@@ -54,7 +54,8 @@ def train_curriculum(args, reward_keys, scenario=None, num_airplanes=1):
             ),
             scenario=scenario_obj,
             render_mode="headless",
-            wind_badness=args.wind_badness
+            wind_badness=args.wind_badness,
+            starting_fuel=args.starting_fuel
         )
     
     logger.info(f"Training with {num_airplanes} airplanes in curriculum learning")

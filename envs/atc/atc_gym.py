@@ -55,7 +55,7 @@ class AtcGym(gym.Env):
         "render_fps": 50
     }
 
-    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5, wind_dirn=270):
+    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5, wind_dirn=270, starting_fuel=10000):
         """
         Initialize the ATC gym environment
         
@@ -65,11 +65,14 @@ class AtcGym(gym.Env):
             scenario: The airspace scenario to use (runways, MVAs, etc.)
             render_mode: 'human' for window rendering, 'rgb_array' for array output, 'headless' for no rendering
             wind_badness: How strong and turbulent the wind should be (0-10)
+            wind_dirn: Wind direction in degrees
+            starting_fuel: Amount of fuel in kg that aircraft start with
         """
 
         self._airplane_count = airplane_count
         self._wind_badness = wind_badness  # Store the wind badness parameter
         self._wind_dirn = wind_dirn
+        self._starting_fuel = starting_fuel  # Store the starting fuel amount
         # print(f"Wind badness: {self._wind_badness} | Wind direction: {self._wind_dirn}")
         self.render_mode = render_mode
         
@@ -1491,7 +1494,8 @@ class AtcGym(gym.Env):
                         x, y,                                       # Position
                         altitude,                                    # Altitude
                         phi,                            # Heading
-                        250                                         # Initial speed
+                        250,                                         # Initial speed
+                        starting_fuel=self._starting_fuel            # Starting fuel
                     )
                 )
                 

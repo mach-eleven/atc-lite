@@ -29,7 +29,8 @@ def train_sb3_ppo(args, reward_keys, scenario=None, num_airplanes=1):
             ),
             scenario=scenario if scenario else scenarios.SupaSupa(),
             render_mode="headless",
-            wind_badness=args.wind_badness
+            wind_badness=args.wind_badness,
+            starting_fuel=args.starting_fuel
         )
     
     env = my_env()

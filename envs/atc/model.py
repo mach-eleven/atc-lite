@@ -108,7 +108,7 @@ def get_wind_speed(x, y, h, mva_type=None, badness=5, wind_dirn=270):
     return (wind_x, wind_y)
 
 class Airplane:
-    def __init__(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
+    def __init__(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300, starting_fuel=None):
         """
         Represents an aircraft in the simulation with its physical properties and constraints.
         
@@ -122,7 +122,8 @@ class Airplane:
         :param v_min: Minimum allowed speed in knots
         :param v_max: Maximum allowed speed in knots
         :param h_min: Minimum allowed altitude in feet
-        :param h_max: Maximum allowed altitude in feet        
+        :param h_max: Maximum allowed altitude in feet
+        :param starting_fuel: Initial fuel amount in kg (defaults to 10000 if None)
         """
         self.sim_parameters = sim_parameters
         self.name = name
@@ -160,7 +161,7 @@ class Airplane:
         
         # NEW: Add fuel and mass properties
         self.empty_mass = 40000  # kg (aircraft without fuel)
-        self.fuel_mass = 10000   # kg (initial fuel)
+        self.fuel_mass = starting_fuel if starting_fuel is not None else 10000  # kg (initial fuel)
         self.max_fuel = 10000    # kg (fuel capacity)
         
         # Fuel consumption rates (kg/s)

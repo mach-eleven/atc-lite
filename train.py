@@ -47,6 +47,7 @@ def add_arguments(parser):
     parser.add_argument('--curr-stages', type=gt_0, default=100, help='Number of stages for curriculum training')
     parser.add_argument('--wind-badness', type=int, choices=range(0, 11), default=5, help='How strong and turbulent the wind should be (0-10)')
     parser.add_argument('--random-entry', action='store_true', help='Use random entry points for airplanes', default=False)
+    parser.add_argument('--starting-fuel', type=gt_0, default=10000, help='Amount of fuel (kg) the airplane starts with during training')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

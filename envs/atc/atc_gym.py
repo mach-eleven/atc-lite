@@ -468,7 +468,7 @@ class AtcGym(gym.Env):
                     
                     # Check if aircraft are too close (standard separation minima)
                     # Horizontal: 3 nautical miles, Vertical: 1000 feet
-                    if distance_nm < 0.2 and vertical_sep < 1000:
+                    if distance_nm < 1.5 and vertical_sep < 1000:
                         # Collision detected - terminate episode
                         collision_penalty = -100
                         reward = collision_penalty

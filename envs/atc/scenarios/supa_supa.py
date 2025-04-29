@@ -2201,6 +2201,7 @@ class SupaSupa(Scenario):
         if entry_point is not None:
             self.entrypoints = [entry_point]
         else:
+            # self.entrypoints = [model.EntryPoint(41.0, 80.0, 247, [209])]
             self.entrypoints = [model.EntryPoint(115.22979218012345, 81.40474641021605, 247, [209])]
 
     def generate_curriculum_entrypoints(self, num_entrypoints: int) -> List[model.EntryPoint]:

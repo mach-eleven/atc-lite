@@ -201,6 +201,12 @@ def add_arguments(parser):
         "--random-entry",   
         action="store_true", help="Use random entry points for airplanes", default=False
     )
+    parser.add_argument(
+        "--savetraj",
+        action="store_true",
+        help="Save the trajectory of all airplanes in a Python file after replay.",
+        default=False,
+    )
 
 
 if __name__ == "__main__":
@@ -272,18 +278,26 @@ if __name__ == "__main__":
 
     frames = []  # Initialize list to store frames for mp4
 
+    # --- Trajectory storage ---
+    all_trajectories = []  # List of list of trajectories for each episode if needed
+
     for ep in range(args.episodes):
         obs, _ = env.reset()
         done = False
         frame_count = 0
         total_reward = 0
         episode_frames = []  # Store frames for the current episode if needed
+        # Initialize trajectory: one list per airplane
+        traj = [[] for _ in range(args.num_airplanes)]
         while not done:
             action, _ = model_.predict(obs, deterministic=True)
             obs, reward, done, truncated, info = env.step(action)
             frame_count += 1
-            # done = done or truncated # why?
             total_reward += reward
+
+            # --- Collect positions for each airplane ---
+            for i, airplane in enumerate(env._airplanes):
+                traj[i].append((float(airplane.x), float(airplane.y)))
 
             # Render and store frame if it's the last episode and mp4 is requested
             is_last_episode = (ep == args.episodes - 1)
@@ -314,7 +328,9 @@ if __name__ == "__main__":
         if is_last_episode and args.mp4:
             frames = episode_frames
 
-        # Don't pause if saving mp4 for the last episode
+        # Save trajectory for this episode
+        all_trajectories.append(traj)
+
         if args.pause_frame and not (is_last_episode and args.mp4):
             input("Press Enter to continue...")
 
@@ -340,5 +356,17 @@ if __name__ == "__main__":
             logger.info(f"MP4 saved successfully to {mp4_filename}")
         except Exception as e:
             logger.error(f"Error saving MP4: {e}")
+
+    # --- Save trajectory if requested ---
+    if args.savetraj:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        traj_filename = f"trajectory_{timestamp}.py"
+        logger.info(f"Saving trajectory to {traj_filename}...")
+        with open(traj_filename, "w") as f:
+            f.write("# Trajectories for all airplanes, each as a list of (x, y) tuples per episode\n")
+            f.write("trajectories = ")
+            f.write(repr(all_trajectories))
+            f.write("\n")
+        logger.info(f"Trajectory saved successfully to {traj_filename}")
 
     env.close()

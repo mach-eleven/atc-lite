@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 import matplotlib.gridspec as gridspec
 from matplotlib.ticker import MaxNLocator
-from scipy.ndimage import gaussian_filter1d
+from tensorboard.backend.event_processing import event_accumulator
 
 # Set up nice looking plots
 plt.style.use('seaborn-v0_8-whitegrid')
@@ -70,7 +70,47 @@ def plot_reward_components(df, run_name, output_dir='visualizations', smoothing=
     plt.savefig(output_path / f'{run_name}_reward_components.png', dpi=200)
     print(f"Saved reward component plot to {output_path / f'{run_name}_reward_components.png'}")
 
-def create_single_run_visualizations(df, run_name, smoothing=10, output_dir='visualizations'):
+def plot_tensorboard_scalars(tb_dir, run_name, output_dir, smoothing=10):
+    tb_dir = Path(tb_dir)
+    if not tb_dir.exists() or not tb_dir.is_dir():
+        print(f"No tensorboard directory found for {run_name}.")
+        return
+    event_files = list(tb_dir.glob("events.out*"))
+    if not event_files:
+        print(f"No TensorBoard event files found in {tb_dir}.")
+        return
+    ea = event_accumulator.EventAccumulator(str(event_files[0]))
+    ea.Reload()
+    tags = ea.Tags().get("scalars", [])
+    if not tags:
+        print(f"No scalar tags found in TensorBoard logs for {run_name}.")
+        return
+    output_path = Path(output_dir) / run_name
+    output_path.mkdir(parents=True, exist_ok=True)
+    for tag in tags:
+        events = ea.Scalars(tag)
+        steps = [e.step for e in events]
+        values = [e.value for e in events]
+        # Optional smoothing
+        if len(values) > smoothing:
+            from scipy.ndimage import gaussian_filter1d
+            values_smooth = gaussian_filter1d(values, sigma=smoothing)
+        else:
+            values_smooth = values
+        plt.figure(figsize=(12, 6))
+        plt.plot(steps, values, alpha=0.3, label=f"{tag} (raw)")
+        plt.plot(steps, values_smooth, label=f"{tag} (smoothed)", linewidth=2)
+        plt.title(f"TensorBoard: {tag} ({run_name})")
+        plt.xlabel("Step")
+        plt.ylabel(tag)
+        plt.legend()
+        plt.tight_layout()
+        fname = tag.replace('/', '_')
+        plt.savefig(output_path / f"tensorboard_{fname}.png")
+        plt.close()
+    print(f"Saved TensorBoard plots for {run_name} to {output_path}")
+
+def create_single_run_visualizations(df, run_name, smoothing=10, output_dir='visualizations', tb_dir=None):
     """Create comprehensive visualizations for a single training run."""
     # Make sure output directory exists
     output_path = Path(output_dir) / run_name
@@ -202,8 +242,34 @@ def create_single_run_visualizations(df, run_name, smoothing=10, output_dir='vis
     plt.grid(True, alpha=0.3)
     plt.savefig(output_path / f'{run_name}_learning_curve.png', dpi=200, bbox_inches='tight')
     
-    plot_reward_components(df, run_name, output_dir=output_dir, smoothing=smoothing)
+    # --- Success Rate Plot ---
+    if 'success_rate' in df.columns:
+        plt.figure(figsize=(12, 6))
+        plt.plot(df['episode'], df['success_rate'], label='Success Rate', color='seagreen')
+        plt.title(f'Success Rate per Episode: {run_name}')
+        plt.xlabel('Episode')
+        plt.ylabel('Success Rate')
+        plt.ylim(-0.05, 1.05)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(output_path / f'{run_name}_success_rate.png')
+        plt.close()
+    # --- Success/Failure Bar Plot ---
+    if 'success_rate' in df.columns:
+        num_success = int(df['success_rate'].sum())
+        num_failure = len(df) - num_success
+        plt.figure(figsize=(6, 6))
+        plt.bar(['Success', 'Failure'], [num_success, num_failure], color=['mediumseagreen', 'salmon'])
+        plt.title(f'Success vs Failure: {run_name}')
+        plt.ylabel('Number of Episodes')
+        plt.tight_layout()
+        plt.savefig(output_path / f'{run_name}_success_failure.png')
+        plt.close()
     
+    plot_reward_components(df, run_name, output_dir=output_dir, smoothing=smoothing)
+    # --- TensorBoard plots ---
+    if tb_dir is not None:
+        plot_tensorboard_scalars(tb_dir, run_name, output_dir, smoothing=smoothing)
     return stats
 
 def compare_runs(run_data, smoothing=10, output_dir='visualizations'):
@@ -329,11 +395,12 @@ def main():
     if args.run:
         # Process a specific run
         run_path = log_dir / args.run / 'log.txt'
+        tb_dir = log_dir / args.run / 'tensorboard'
         if run_path.exists():
             df = load_run_data(run_path)
             if df is not None:
                 all_runs[args.run] = df
-                stats = create_single_run_visualizations(df, args.run, smoothing=args.smoothing, output_dir=str(output_dir))
+                stats = create_single_run_visualizations(df, args.run, smoothing=args.smoothing, output_dir=str(output_dir), tb_dir=tb_dir)
                 print(f"Processed run: {args.run}")
         else:
             print(f"Run not found: {args.run}")
@@ -344,12 +411,12 @@ def main():
         for run_dir in run_dirs:
             run_name = run_dir.name
             log_path = run_dir / 'log.txt'
-            
+            tb_dir = run_dir / 'tensorboard'
             if log_path.exists():
                 df = load_run_data(log_path)
                 if df is not None:
                     all_runs[run_name] = df
-                    stats = create_single_run_visualizations(df, run_name, smoothing=args.smoothing, output_dir=str(output_dir))
+                    stats = create_single_run_visualizations(df, run_name, smoothing=args.smoothing, output_dir=str(output_dir), tb_dir=tb_dir)
                     print(f"Processed run: {run_name}")
     
     # Compare runs if requested

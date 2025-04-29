@@ -11,3 +11,5 @@ new_logs/*
 
 test_logs/*
 temp_*
+
+*.mp4

@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import time
+import numpy as np
+import cv2  # Use OpenCV for MP4 saving
 
 from stable_baselines3 import PPO
 import torch
@@ -121,7 +123,7 @@ def add_arguments(parser):
     parser.add_argument(
         "--sleep",
         type=float,
-        default=0.05,
+        default=1,
         help="Sleep time between frames (for rendering)",
     )
     parser.add_argument(
@@ -134,6 +136,12 @@ def add_arguments(parser):
         "--num-airplanes", type=gt_0, default=1, help="Number of airplanes to demo with"
     )
     parser.add_argument('--pause-frame', action='store_true', default=True)
+    parser.add_argument(
+        "--mp4",
+        action="store_true",
+        help="Save the last episode replay as an MP4 file.",
+        default=False,
+    )
 
 
 if __name__ == "__main__":
@@ -178,39 +186,90 @@ if __name__ == "__main__":
         args.entry, args.heading, args.level, args.curr_stage_entry_point
     )
 
+    render_mode = "rgb_array" if args.mp4 else "human"  # Change render mode if mp4 is requested
+
     env = AtcGym(
         airplane_count=args.num_airplanes,
         sim_parameters=model.SimParameters(
             1.0, discrete_action_space=False, normalize_state=True
         ),
         scenario=scenario,
-        render_mode="human",
+        render_mode=render_mode,  # Use the determined render mode
     )
     model_ = PPO.load(
         args.checkpoint,
         env,
     )
 
+    frames = []  # Initialize list to store frames for mp4
+
     for ep in range(args.episodes):
         obs, _ = env.reset()
         done = False
         frame_count = 0
         total_reward = 0
+        episode_frames = []  # Store frames for the current episode if needed
         while not done:
             action, _ = model_.predict(obs, deterministic=True)
             obs, reward, done, truncated, info = env.step(action)
             frame_count += 1
             # done = done or truncated # why?
             total_reward += reward
-            if frame_count % args.skip_frames == 0:
+
+            # Render and store frame if it's the last episode and mp4 is requested
+            is_last_episode = (ep == args.episodes - 1)
+            if is_last_episode and args.mp4:
+                if frame_count % args.skip_frames == 0:
+                    frame = env.render()
+                    if frame is not None:
+                        episode_frames.append(frame)
+                    time.sleep(args.sleep)  # Keep sleep for pacing if needed, even when saving
+            elif frame_count % args.skip_frames == 0:  # Regular rendering for other episodes or if not saving mp4
                 env.render()
                 time.sleep(args.sleep)
+
             if done:
-                env.render()
+                # Render final frame if in human mode or if saving mp4 and it wasn't skipped
+                if render_mode == "human":
+                    env.render()
+                elif is_last_episode and args.mp4:
+                    frame = env.render()
+                    if frame is not None:
+                        episode_frames.append(frame)
                 break
-        
+
             logger.info(f"Episode {ep+1}, Frame {frame_count}: Action: {action}, Reward: {reward}")
         logger.info(f"Episode {ep+1}: Total Reward = {total_reward}")
-        if args.pause_frame:
+
+        # Store frames from the last episode
+        if is_last_episode and args.mp4:
+            frames = episode_frames
+
+        # Don't pause if saving mp4 for the last episode
+        if args.pause_frame and not (is_last_episode and args.mp4):
             input("Press Enter to continue...")
+
+    # Save the MP4 file if requested
+    if args.mp4 and frames:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        mp4_filename = f"replay_{timestamp}.mp4"
+        logger.info(f"Saving last episode replay to {mp4_filename}...")
+        
+        try:
+            # Use OpenCV for MP4 writing
+            height, width, layers = frames[0].shape
+            fps = int(1 / args.sleep) if args.sleep > 0 else 30
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            video_writer = cv2.VideoWriter(mp4_filename, fourcc, fps, (width, height))
+            
+            for frame in frames:
+                # Convert RGB to BGR for OpenCV
+                bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                video_writer.write(bgr_frame)
+                
+            video_writer.release()
+            logger.info(f"MP4 saved successfully to {mp4_filename}")
+        except Exception as e:
+            logger.error(f"Error saving MP4: {e}")
+
     env.close()

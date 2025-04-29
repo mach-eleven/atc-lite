@@ -22,3 +22,4 @@ class ColorScheme:
     weather_mva_color = [30, 144, 255, 150]  # Dodger blue, lower opacity for weather
     # Oceanic areas (deep blue with 50% opacity)s
     oceanic_mva_color = [0, 105, 148, 150]  # Deep blue, medium opacity
+    decoration = [0, 0, 0, 255]  # Black

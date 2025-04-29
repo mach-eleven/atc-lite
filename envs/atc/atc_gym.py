@@ -801,6 +801,7 @@ class AtcGym(gym.Env):
                 self._render_faf()     # Final approach fix
                 self._render_approach()  # Approach path
                 self._render_wind()   # Wind direction
+                self._render_decoration() # Additional decorations
 
         # Only render dynamic elements if not in headless mode
         if render_mode != 'headless':
@@ -812,6 +813,8 @@ class AtcGym(gym.Env):
                 self._render_airplane(airplane) # Aircraft symbols
             self._render_all_aircraft_info_panel(self._airplanes) # Aircraft information panel
             self._render_reward()      # Reward information
+
+
 
         # Return the rendered frame
         return self.viewer.render(render_mode == 'rgb_array')
@@ -1399,6 +1402,47 @@ class AtcGym(gym.Env):
             trail = rendering.PolyLine(screen_points, False, linewidth=2)
             trail.set_color(*color)
             self.viewer.add_onetime(trail)
+    
+    def _render_decoration(self):
+        """
+        Render additional decorations on the screen (if any).
+        """
+        # Placeholder for future decorations
+
+        def transform_world_to_screen(coords):
+            return [((coord[0] - self._world_x_min) * self._scale + self._padding,
+                     (coord[1] - self._world_y_min) * self._scale + self._padding) for coord in coords]
+
+
+        for decor in self._scenario.decorations:
+            # decor is a shapely geometry
+            # match it based on type
+            match decor.geom_type:
+                case "Point":
+                    # render a point
+                    point = rendering.make_circle(5)
+                    point.set_color(*ColorScheme.decoration)
+                    point.set_translation(decor.x, decor.y)
+                    self.viewer.add_geom(point)
+                case "LineString":
+                    # render a line
+
+                    # transform the coordinates to screen coordinates
+                    coords = transform_world_to_screen(decor.coords)
+
+
+                    line = rendering.PolyLine(coords, False, linewidth=2)
+                    line.set_color_opacity(*ColorScheme.decoration)
+                    self.viewer.add_geom(line)
+                    logger.info(f"LineString added.")
+                case "Polygon":
+                    # render a polygon
+                    polygon = rendering.FilledPolygon(decor.exterior.coords)
+                    polygon.set_color(*ColorScheme.decoration)
+                    self.viewer.add_geom(polygon)
+                case _:
+                    # Unsupported geometry type
+                    logger.warning(f"Unsupported decoration geometry type: {decor.geom_type}")
 
     def toggle_trajectories(self):
         """

@@ -352,9 +352,11 @@ class AtcGym(gym.Env):
                 fuel_bonus = airplane.fuel_remaining_pct
                 time_bonus = max((self.timestep_limit - self.timesteps) * 0.1, 0)
                 success_reward = 200 + time_bonus + 0.1 * fuel_bonus
-                reward = success_reward
+                reward += success_reward  # Add to reward instead of overwriting
                 reward_components["success_rewards"] += success_reward
                 dones[c] = True
+                # Set a flag to mark this plane as having reached the FAF
+                airplane.reached_faf = True
                 logger.debug(f"Aircraft {airplane.name} has entered the approach corridor (position only, simplified success)!")
                 logger.debug(f"  Fuel bonus: +{fuel_bonus:.2f} | Time bonus: +{time_bonus:.2f}")
 
@@ -415,19 +417,40 @@ class AtcGym(gym.Env):
 
         # Check if any aircraft reaches the approach corridor, terminate the episode immediately
         if any(dones):
-            self.done = True
-            # Return early to avoid overwriting self.done
-            state = self._get_obs(mva)
-            if self._sim_parameters.normalize_state:
-                state = 2 * (state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
-            self._update_metrics(reward)
-            truncated = False
-            return state, reward, self.done, truncated, {"original_state": self.state, "reward_components": reward_components}
+            # Don't end the episode immediately when a single aircraft reaches the FAF
+            # Instead, mark that plane as having reached the FAF and continue the episode
+            # for the remaining aircraft
+            for i, done_status in enumerate(dones):
+                if done_status and hasattr(self._airplanes[i], 'reached_faf') and self._airplanes[i].reached_faf:
+                    # This aircraft has already been marked as having reached the FAF, nothing more to do
+                    pass
+                elif done_status:
+                    # This aircraft has just reached the FAF or failed in some way
+                    # We only want to continue the episode for aircraft that have reached the FAF
+                    # Aircraft that have failed for other reasons should still end the episode
+                    success_case = (hasattr(self._airplanes[i], 'reached_faf') and self._airplanes[i].reached_faf)
+                    if not success_case:
+                        # If this is a failure case (not reaching the FAF), end the episode
+                        self.done = True
+                        state = self._get_obs(mva)
+                        if self._sim_parameters.normalize_state:
+                            state = 2 * (state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
+                        self._update_metrics(reward)
+                        truncated = False
+                        return state, reward, self.done, truncated, {"original_state": self.state, "reward_components": reward_components}
 
         # Check for collisions between aircraft
         if len(self._airplanes) > 1:
             for i in range(len(self._airplanes)):
+                # Skip planes that have already reached the FAF
+                if hasattr(self._airplanes[i], 'reached_faf') and self._airplanes[i].reached_faf:
+                    continue
+                    
                 for j in range(i + 1, len(self._airplanes)):
+                    # Skip collision check if the second plane has reached the FAF
+                    if hasattr(self._airplanes[j], 'reached_faf') and self._airplanes[j].reached_faf:
+                        continue
+                        
                     plane1 = self._airplanes[i]
                     plane2 = self._airplanes[j]
                     
@@ -445,7 +468,7 @@ class AtcGym(gym.Env):
                     
                     # Check if aircraft are too close (standard separation minima)
                     # Horizontal: 3 nautical miles, Vertical: 1000 feet
-                    if distance_nm < 3.0 and vertical_sep < 1000:
+                    if distance_nm < 0.2 and vertical_sep < 1000:
                         # Collision detected - terminate episode
                         collision_penalty = -100
                         reward = collision_penalty
@@ -456,13 +479,23 @@ class AtcGym(gym.Env):
                         self._win_buffer.append(0)
                         break
 
-        # NEW: Check if all aircraft are out of fuel
-        if all(out_of_fuel):
+        # Check if all aircraft are out of fuel or have reached the FAF
+        all_reached_faf = all(hasattr(airplane, 'reached_faf') and airplane.reached_faf for airplane in self._airplanes)
+        active_planes_out_of_fuel = all(out_of_fuel[i] for i in range(len(self._airplanes)) 
+                                       if not (hasattr(self._airplanes[i], 'reached_faf') and self._airplanes[i].reached_faf))
+        
+        # End episode if all planes have reached the FAF
+        if all_reached_faf:
+            self.done = True
+            logger.debug("All aircraft have successfully reached the approach corridor!")
+        # End episode if all active planes (not reached FAF) are out of fuel
+        elif active_planes_out_of_fuel and not all(out_of_fuel):
             self.done = True
             all_fuel_penalty = -50  # was -100
-            reward = all_fuel_penalty
+            reward += all_fuel_penalty  # Add to reward instead of overwriting
             reward_components["fuel_penalties"] += all_fuel_penalty
-            logger.debug("All aircraft are out of fuel!")
+            logger.debug("All active aircraft are out of fuel!")
+        # Otherwise, episode is done if all individual planes are done
         else:
             self.done = all(dones)
 
@@ -1304,8 +1337,7 @@ class AtcGym(gym.Env):
                         next_wind_speed = np.linalg.norm(next_vector)
                         
                         # Update unit vector (creates the curve effect)
-                        if next_wind_speed > 0:
-                            unit_vector = next_vector / next_wind_speed
+                        unit_vector = next_vector / next_wind_speed if next_wind_speed > 0 else np.array([0, 0])
                     else:
                         # Stop if we go out of bounds
                         break
@@ -1352,15 +1384,15 @@ class AtcGym(gym.Env):
                             angle = math.atan2(dy, dx)
                             
                             # Arrow size based on wind speed
-                            arrow_size = 4 + int(speed_ratio * 4)
+                            arrowhead_size = 4 + int(speed_ratio * 4)
                             
                             # Create arrowhead
                             arrowhead = rendering.FilledPolygon([
                                 (mid_pt[0], mid_pt[1]),
-                                (mid_pt[0] - arrow_size * math.cos(angle - math.pi/6), 
-                                 mid_pt[1] - arrow_size * math.sin(angle - math.pi/6)),
-                                (mid_pt[0] - arrow_size * math.cos(angle + math.pi/6), 
-                                 mid_pt[1] - arrow_size * math.sin(angle + math.pi/6))
+                                (mid_pt[0] - arrowhead_size * math.cos(angle - math.pi/6), 
+                                 mid_pt[1] - arrowhead_size * math.sin(angle - math.pi/6)),
+                                (mid_pt[0] - arrowhead_size * math.cos(angle + math.pi/6), 
+                                 mid_pt[1] - arrowhead_size * math.sin(angle + math.pi/6))
                             ])
                             arrowhead.set_color_opacity(r, g, b, 200)
                             self.viewer.add_geom(arrowhead)
@@ -1591,27 +1623,29 @@ class AtcGym(gym.Env):
             
         for i, airplane in enumerate(self._airplanes):
             # Get position history from the airplane
-            history = airplane.position_history
-            
-            # Skip if history is too short
-            if len(history) < 2:
+            history = getattr(airplane, 'position_history', [])
+            # Skip if history is empty
+            if not history:
                 continue
                 
-            # Limit the trail length to prevent performance issues
-            trail_points = history[-self.max_trail_length:]
-            
             # Convert world coordinates to screen coordinates
             screen_points = []
-            for x, y in trail_points:
-                point = self._screen_vector(x, y)
-                screen_points.append((point[0][0], point[1][0]))
+            for point in history:
+                if len(point) == 2:  # Ensure the point has x, y coordinates
+                    x, y = point
+                    point_vector = self._screen_vector(x, y)
+                    screen_points.append((point_vector[0][0], point_vector[1][0]))
             
+            # Skip if no valid screen points
+            if not screen_points:
+                continue
+                
             # Draw polyline connecting history points
             color = self.trajectory_colors[i % len(self.trajectory_colors)]
             trail = rendering.PolyLine(screen_points, False, linewidth=2)
             trail.set_color(*color)
             self.viewer.add_onetime(trail)
-    
+
     def _render_decoration(self):
         """
         Render additional decorations on the screen (if any).

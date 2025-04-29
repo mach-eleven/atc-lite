@@ -144,7 +144,7 @@ def add_arguments(parser):
     parser.add_argument(
         "--curr-stages",
         type=gt_0,
-        default=100,
+        default=50,
         help="Number of entry points to generate for curriculum training",
     )
     parser.add_argument(

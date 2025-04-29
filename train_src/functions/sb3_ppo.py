@@ -15,28 +15,27 @@ from utils.train_test_functions import train_model
 logger = logging.getLogger("train.sb3_ppo")
 logger.setLevel(logging.INFO)
 
-def train_sb3_ppo(args, reward_keys):
-
+def train_sb3_ppo(args, reward_keys, scenario=None):
     eval_log_path_csv, flog_path, tensorboard_logd, tb_logger, plotter = set_log_paths(args, reward_keys)
     log_info("SB3 PPO", args, logger)
 
-    """ Create the environment """
+    # Create the environment, using the provided scenario if given
     def my_env():
         return AtcGym(
             airplane_count=1,
             sim_parameters=model.SimParameters(
                 1.0, discrete_action_space=False, normalize_state=True
             ),
-            scenario=scenarios.SupaSupa(),
+            scenario=scenario if scenario is not None else scenarios.SupaSupa(),
             render_mode="headless",
         )
-        
+    
     env = my_env()
     vec_env = make_vec_env(my_env, n_envs=args.threads, vec_env_cls=SubprocVecEnv)
     logger.info(f"="*80)
 
     # Load from checkpoint if provided, else create new model
-    if args.checkpoint:  # os path has been checked in the main function
+    if args.checkpoint:
         model_ = PPO.load(
             args.checkpoint,
             env=vec_env,
@@ -46,11 +45,11 @@ def train_sb3_ppo(args, reward_keys):
             batch_size=2048,
             learning_rate=3e-4,
             gamma=0.99,
-            gae_lambda=0.95,  # GAE parameter
-            clip_range=0.2,  # PPO clipping parameter
-            ent_coef=0.01,  # Entropy coefficient
-            vf_coef=0.5,  # Value function coefficient
-            max_grad_norm=0.5,  # Gradient clipping
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.01,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
             n_epochs=10,
         )
     else:
@@ -63,15 +62,12 @@ def train_sb3_ppo(args, reward_keys):
             batch_size=2048,
             learning_rate=3e-4,
             gamma=0.99,
-            gae_lambda=0.95,  # GAE parameter
-            clip_range=0.2,  # PPO clipping parameter
-            ent_coef=0.01,  # Entropy coefficient
-            vf_coef=0.5,  # Value function coefficient
-            max_grad_norm=0.5,  # Gradient clipping
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.01,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
             n_epochs=10,
         )
 
-    # model_.policy = torch.compile(model_.policy)
-
-    """ Main training loop """
     train_model(model_, args, logger, env, reward_keys, eval_log_path_csv, flog_path, tb_logger, plotter)

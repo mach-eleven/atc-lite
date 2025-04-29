@@ -245,6 +245,10 @@ if __name__ == "__main__":
     entry_point = validate_and_get_entry_point(
         args.entry, args.heading, args.level, args.curr_stage_entry_point, args.scenario, args.num_airplanes
     )
+    if type(entry_point.levels) != list:
+        entry_point.levels = [entry_point.levels]
+
+    logger.info(f"Entry point(s): {entry_point}")
     
     # Create the scenario with appropriate parameters
     if args.scenario in ["SimpleScenario", "SuperSimple"]:
@@ -256,6 +260,13 @@ if __name__ == "__main__":
             scenario = scenario_class(random_entrypoints=args.random_entry, entry_point=entry_point)
         else:
             scenario = scenario_class(random_entrypoints=args.random_entry)
+    elif args.scenario == "SupaSupa":
+        # For SupaSupa, we need to set the entry points
+        # if args.num_airplanes == 2:
+        #     # Pass the entry points to the scenario
+        #     scenario = scenario_class(random_entrypoints=args.random_entry, entry_point=entry_point)
+        # else:
+        scenario = scenario_class(entry_point=entry_point)
     elif args.scenario == "CurriculumTrainingScenario":
         scenario = scenario_class()  # Uses default entry points
     else:

@@ -128,12 +128,14 @@ def parse_args():
     parser.add_argument('--curr-stage-entry-point', type=int, default=15,
                           help='Curriculum stage to use (1 = closest, ... N = farthest)')
     parser.add_argument('--pause-frame', action='store_true', default=False)
+    parser.add_argument('--scenario', type=str, choices=['LOWW', 'SupaSupa', 'SuperSimple'], default='LOWW',
+                       help='Scenario to use for simulation (default: LOWW)')
     return parser.parse_args()
 
 def main():
     args = parse_args()
     
-    print("Running realistic ATC simulation with wind and fuel effects...")
+    print(f"Running realistic ATC simulation with {args.scenario} scenario...")
     print(f"Wind scale: {args.wind_scale}, Autopilot: {'Enabled' if args.autopilot else 'Disabled'}")
     
     # Determine render mode based on arguments
@@ -167,25 +169,25 @@ def main():
     # Apply the modified initialization
     model.Airplane.__init__ = modified_init
     
-    # Create custom wind scale for the scenario
-    # class CustomLOWW(LOWW):
-    #     def __init__(self, random_entrypoints=True, wind_scale=5.0):
-    #         super().__init__(random_entrypoints)
-    #         # Override the wind with custom scale
-    #         minx, miny, maxx, maxy = self.airspace.get_bounding_box()
-    #         self.wind = model.Wind(
-    #             (math.ceil(minx), math.ceil(maxx), math.ceil(miny), math.ceil(maxy)),
-    #             swirl_scale=wind_scale
-    #         )
+    # Select the appropriate scenario based on user input
+    if args.scenario == 'LOWW':
+        scenario_class = LOWW
+        scenario_instance = LOWW()
+    elif args.scenario == 'SupaSupa':
+        scenario_class = SupaSupa
+        curr_entry_points = SupaSupa().generate_curriculum_entrypoints(num_entrypoints=args.curr_stages)
+        scenario_instance = SupaSupa(curr_entry_points[args.curr_stage_entry_point - 1])
+    elif args.scenario == 'SuperSimple':
+        scenario_class = SuperSimple
+        scenario_instance = SuperSimple()
     
-    # Create environment with 3 aircraft for different scenarios with the specified render mode
+    print(f"Selected scenario: {args.scenario}")
     
-    curr_entry_points = SupaSupa().generate_curriculum_entrypoints(num_entrypoints=args.curr_stages)
-    print(curr_entry_points)
+    # Create environment with the selected scenario
     env = AtcGym(
         airplane_count=1, 
         sim_parameters=sim_params, 
-        scenario=SupaSupa(curr_entry_points[args.curr_stage_entry_point - 1]),
+        scenario=scenario_instance,
         render_mode=render_mode,
         wind_badness=args.wind_badness
     )

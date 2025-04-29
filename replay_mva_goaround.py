@@ -1,7 +1,7 @@
 import argparse
 from stable_baselines3 import PPO
 from envs.atc.atc_gym import AtcGym
-from envs.atc.scenario_mva_goaround import MvaGoAroundScenario
+from envs.atc.scenarios.mva_goaround import MvaGoAroundScenario
 from envs.atc import model
 import time
 

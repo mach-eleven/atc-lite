@@ -1,5 +1,5 @@
 import shapely.geometry as shape
-from . import model
+from .. import model
 from .scenarios import Scenario
 
 class MvaGoAroundScenario(Scenario):

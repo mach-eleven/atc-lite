@@ -29,7 +29,7 @@ def add_arguments(parser):
     """
     parser.add_argument('--model', type=str, default='ppo_sb3', choices=['curr', 'ppo_sb3', 'ppo', 'dqn'], help='RL algorithm to use')
     parser.add_argument('--num-airplanes', type=gt_0, default=2, help='Number of airplanes to train with')
-    parser.add_argument('--scenario', type=str, default='SupaSupa', choices=['SimpleScenario', 'SuperSimple', 'LOWW', 'SimpleTrainingScenario', 'CurriculumTrainingScenario', 'SupaSupa'], help='Scenario to use for training')
+    parser.add_argument('--scenario', type=str, default='SupaSupa', help='Scenario to use for training')
     parser.add_argument('--checkpoint', type=checkpoint_type, default=None, help='Path to SB3 PPO checkpoint to resume training from.')
     parser.add_argument('--checkpoint-stage', type=gt_0, default=1, help='Start training from this stage. 1 is closest.')
     parser.add_argument('--outdir', type=outdir_type, default='new_logs/multi_plane', help='Output directory for logs and models')
@@ -69,7 +69,11 @@ if __name__ == "__main__":
     logger.info(f"Using scenario: {args.scenario} with {args.num_airplanes} airplanes")
     
     # Create scenario instance based on scenario name
-    scenario_class = getattr(scenarios, args.scenario)
+    try:
+        scenario_class = getattr(scenarios, args.scenario)
+    except AttributeError:
+        logger.error(f"Scenario {args.scenario} not found in envs.atc.scenarios.")
+        sys.exit(1)
     if args.scenario in ['SimpleScenario', 'SuperSimple', 'LOWW']:
         scenario = scenario_class(random_entrypoints=args.random_entry)
     elif args.scenario == 'CurriculumTrainingScenario':

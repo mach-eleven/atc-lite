@@ -9,6 +9,7 @@ import sys
 import time
 import numpy as np
 import cv2  # Use OpenCV for MP4 saving
+import random  # Add import for random selection
 
 from stable_baselines3 import PPO
 import torch
@@ -72,6 +73,37 @@ def validate_and_get_entry_point(entry, heading, level, curr_stage_entry_point, 
             return scenarios.LOWW().generate_curriculum_entrypoints(
                 num_entrypoints=args.curr_stages
             )[curr_stage_entry_point - 1]
+    
+    # Special handling for LOWW or ModifiedLOWW with 1 airplane using the special curriculum system
+    elif scenario_name in ["LOWW", "ModifiedLOWW"] and num_airplanes == 1:
+        if entry is not None and heading is not None and level is not None:
+            entry_point = model.EntryPoint(entry[0], entry[1], heading, level)
+        elif entry is not None:
+            raise ValueError("If entry is provided, heading and level must also be provided.")
+        elif heading is not None or level is not None:
+            raise ValueError("If heading or level is provided, entry must also be provided.")
+        elif curr_stage_entry_point == "max":
+            # Use the first entry point of the LOWW scenario
+            scenario_instance = getattr(scenarios, scenario_name)()
+            entry_point = scenario_instance.entrypoints[0]
+        else:
+            # Get curriculum entry points using the special many-entry-point system
+            if curr_stage_entry_point < 1 or curr_stage_entry_point > args.curr_stages:
+                raise ValueError(
+                    f"Curriculum stage {curr_stage_entry_point} is out of range. Must be between 1 and {args.curr_stages}."
+                )
+            
+            # Get the list of entry points from the specified stage
+            scenario_instance = getattr(scenarios, scenario_name)()
+            entry_points_list = scenario_instance.generate_curriculum_entrypoint_but_many(
+                num_entrypoints=args.curr_stages
+            )[curr_stage_entry_point - 1]
+            
+            # Randomly select one entry point from the list
+            entry_point = random.choice(entry_points_list)
+            logger.info(f"Randomly selected entry point for {scenario_name}: {entry_point}")
+                
+        return entry_point
     
     # Regular handling for other scenarios or LOWW with 1 airplane
     else:
@@ -259,13 +291,16 @@ if __name__ == "__main__":
             # Pass the entry points to the scenario
             scenario = scenario_class(random_entrypoints=args.random_entry, entry_point=entry_point)
         else:
-            scenario = scenario_class(random_entrypoints=args.random_entry)
+            scenario = scenario_class(entry_point=entry_point)
+    elif args.scenario == "ModifiedLOWW":
+        scenario = scenario_class(entry_point=entry_point)
     elif args.scenario == "SupaSupa":
         # For SupaSupa, we need to set the entry points
         # if args.num_airplanes == 2:
         #     # Pass the entry points to the scenario
         #     scenario = scenario_class(random_entrypoints=args.random_entry, entry_point=entry_point)
         # else:
+        print(entry_point)
         scenario = scenario_class(entry_point=entry_point)
     elif args.scenario == "CurriculumTrainingScenario":
         scenario = scenario_class()  # Uses default entry points

@@ -383,7 +383,7 @@ class LOWW(Scenario):
                 
                 # Use the calculated safe altitude for flight levels
                 # Round to nearest 100 feet for standard flight levels
-                safe_flight_level = math.ceil(safe_altitude / 100) * 100
+                safe_flight_level = math.ceil(safe_altitude / 100) * 10
                 
                 # Create entry point with heading toward runway and safe altitude
                 runway_heading_entry = model.EntryPoint(x, y, heading_to_runway, [safe_flight_level])

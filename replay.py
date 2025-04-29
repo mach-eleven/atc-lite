@@ -41,29 +41,84 @@ logger = logging.getLogger("train")
 logger.setLevel(logging.INFO)
 
 
-def validate_and_get_entry_point(entry, heading, level, curr_stage_entry_point):
-    if entry is not None and heading is not None and level is not None:
-        entry_point = model.EntryPoint(entry[0], entry[1], heading, level)
-    elif entry is not None:
-        raise ValueError(
-            "If entry is provided, heading and level must also be provided."
-        )
-    elif heading is not None or level is not None:
-        raise ValueError(
-            "If heading or level is provided, entry must also be provided."
-        )
-    elif curr_stage_entry_point == "max":
-        entry_point = scenarios.SupaSupa().entrypoints[0]
+def validate_and_get_entry_point(entry, heading, level, curr_stage_entry_point, scenario_name, num_airplanes):
+    """
+    Validates and returns the appropriate entry point(s) based on command line arguments.
+    For LOWW with 2 airplanes, returns a list of entry points, one for each airplane.
+    For other scenarios, returns a single entry point.
+    """
+    # Special handling for LOWW scenario with 2 airplanes
+    if scenario_name == "LOWW" and num_airplanes == 2:
+        # If specific entry point parameters are provided, use them
+        if entry is not None and heading is not None and level is not None:
+            # Create two entry points with slightly different positions to avoid collisions
+            entry_point1 = model.EntryPoint(entry[0], entry[1], heading, level)
+            # Second plane starts from a different approach path
+            entry_point2 = model.EntryPoint(entry[0] - 10, entry[1] - 10, heading - 45, level)
+            return [entry_point1, entry_point2]
+        elif entry is not None:
+            raise ValueError("If entry is provided, heading and level must also be provided.")
+        elif heading is not None or level is not None:
+            raise ValueError("If heading or level is provided, entry must also be provided.")
+        elif curr_stage_entry_point == "max":
+            # Use default LOWW entry points for 2 airplanes
+            return scenarios.LOWW().entrypoints
+        else:
+            # Get curriculum entry points for the specified stage
+            if curr_stage_entry_point < 1 or curr_stage_entry_point > args.curr_stages:
+                raise ValueError(
+                    f"Curriculum stage {curr_stage_entry_point} is out of range. Must be between 1 and {args.curr_stages}."
+                )
+            return scenarios.LOWW().generate_curriculum_entrypoints(
+                num_entrypoints=args.curr_stages
+            )[curr_stage_entry_point - 1]
+    
+    # Regular handling for other scenarios or LOWW with 1 airplane
     else:
-        if curr_stage_entry_point < 1 or curr_stage_entry_point > args.curr_stages:
+        if entry is not None and heading is not None and level is not None:
+            entry_point = model.EntryPoint(entry[0], entry[1], heading, level)
+        elif entry is not None:
             raise ValueError(
-                f"Curriculum stage {curr_stage_entry_point} is out of range. Must be between 1 and {args.curr_stages}."
+                "If entry is provided, heading and level must also be provided."
             )
-        entry_point = scenarios.SupaSupa().generate_curriculum_entrypoints(
-            num_entrypoints=args.curr_stages
-        )[curr_stage_entry_point - 1]
-
-    return entry_point
+        elif heading is not None or level is not None:
+            raise ValueError(
+                "If heading or level is provided, entry must also be provided."
+            )
+        elif curr_stage_entry_point == "max":
+            if scenario_name == "SupaSupa":
+                entry_point = scenarios.SupaSupa().entrypoints[0]
+            else:
+                # Use the first entry point of the specified scenario
+                scenario_instance = getattr(scenarios, scenario_name)()
+                entry_point = scenario_instance.entrypoints[0]
+        else:
+            # Get curriculum entry points for the specified stage
+            if curr_stage_entry_point < 1 or curr_stage_entry_point > args.curr_stages:
+                raise ValueError(
+                    f"Curriculum stage {curr_stage_entry_point} is out of range. Must be between 1 and {args.curr_stages}."
+                )
+                
+            if scenario_name == "SupaSupa":
+                entry_point = scenarios.SupaSupa().generate_curriculum_entrypoints(
+                    num_entrypoints=args.curr_stages
+                )[curr_stage_entry_point - 1]
+            elif scenario_name == "LOWW":
+                entry_point = scenarios.LOWW().generate_curriculum_entrypoints(
+                    num_entrypoints=args.curr_stages
+                )[curr_stage_entry_point - 1][0]  # Use first airplane's entry point
+            else:
+                # Try to call generate_curriculum_entrypoints if it exists
+                scenario_instance = getattr(scenarios, scenario_name)()
+                if hasattr(scenario_instance, "generate_curriculum_entrypoints"):
+                    entry_point = scenario_instance.generate_curriculum_entrypoints(
+                        num_entrypoints=args.curr_stages
+                    )[curr_stage_entry_point - 1]
+                else:
+                    # Fall back to the first entry point if curriculum not supported
+                    entry_point = scenario_instance.entrypoints[0]
+                
+        return entry_point
 
 
 def add_arguments(parser):
@@ -180,16 +235,26 @@ if __name__ == "__main__":
     except AttributeError:
         logger.error(f"Scenario {args.scenario} not found in envs.atc.scenarios.")
         sys.exit(1)
-    if args.scenario in ["SimpleScenario", "SuperSimple", "LOWW"]:
+        
+    # Get the entry point(s) for the scenario
+    entry_point = validate_and_get_entry_point(
+        args.entry, args.heading, args.level, args.curr_stage_entry_point, args.scenario, args.num_airplanes
+    )
+    
+    # Create the scenario with appropriate parameters
+    if args.scenario in ["SimpleScenario", "SuperSimple"]:
         scenario = scenario_class(random_entrypoints=args.random_entry)
+    elif args.scenario == "LOWW":
+        # For LOWW with 2 airplanes, we need to set the entry points
+        if args.num_airplanes == 2:
+            # Pass the entry points to the scenario
+            scenario = scenario_class(random_entrypoints=args.random_entry, entry_point=entry_point)
+        else:
+            scenario = scenario_class(random_entrypoints=args.random_entry)
     elif args.scenario == "CurriculumTrainingScenario":
         scenario = scenario_class()  # Uses default entry points
     else:
         scenario = scenario_class()
-
-    entry_point = validate_and_get_entry_point(
-        args.entry, args.heading, args.level, args.curr_stage_entry_point
-    )
 
     render_mode = "rgb_array" if args.mp4 else "human"  # Change render mode if mp4 is requested
 

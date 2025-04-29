@@ -1,5 +1,7 @@
-import random
+import math
+from typing import List
 
+import random
 import numpy as np
 
 from .. import model
@@ -8,8 +10,6 @@ from .scenarios import Scenario
 import shapely.geometry as shape
 from math import ceil
 
-import random
-
 import logging 
 logger = logging.getLogger("train.scenarios")
 logger.setLevel(logging.INFO)
@@ -17,7 +17,7 @@ logger.setLevel(logging.INFO)
 MvaType = model.MvaType
 
 class LOWW(Scenario):
-    def __init__(self, random_entrypoints=False):
+    def __init__(self, random_entrypoints=False, entry_point=None):
         super().__init__()
 
         self.mvas = [
@@ -173,7 +173,10 @@ class LOWW(Scenario):
 
         self.airspace = model.Airspace(self.mvas, self.runway)
 
-        if random_entrypoints:
+        if entry_point is not None:
+            # For curriculum learning with a specific entry point
+            self.entrypoints = [entry_point]
+        elif random_entrypoints:
             self.entrypoints = [
                 model.EntryPoint(10, 51, 90, [130, 150, 170, 190, 210, 230]),
                 model.EntryPoint(17, 74.6, 120, [130, 150, 170, 190, 210, 230]),
@@ -186,10 +189,11 @@ class LOWW(Scenario):
                 model.EntryPoint(46.0, 7.0, 320, [140, 160, 180, 200, 220, 240, 260])
             ]
         else:
+            # Default entry points for the scenario
             self.entrypoints = [
-                model.EntryPoint(10, 51, 90, [150])
+                model.EntryPoint(10, 51, 90, [150]),
+                model.EntryPoint(54.0, 80.5, 230, [150])  # Second entry point for two-airplane scenario
             ]
-
         
         minx, miny, maxx, maxy = self.airspace.get_bounding_box()
         self.wind = model.Wind((ceil(minx), ceil(maxx), ceil(miny), ceil(maxy)))
@@ -240,3 +244,69 @@ class LOWW(Scenario):
             aircraft.append(Aircraft(f"FLT{i+1:03d}", x, y, altitude, heading))
         
         return aircraft
+
+    def generate_curriculum_entrypoints(self, num_entrypoints: int) -> List[model.EntryPoint]:
+        """
+        Generate curriculum entry points for training with the LOWW scenario.
+        Entry points maintain the same heading toward the runway but vary in distance.
+        
+        For a two-airplane scenario, we generate two sets of entry points with 
+        different approach paths to avoid collisions.
+        """
+        # We have two planes with different entry points
+        # Create paths from each entry point to runway, maintaining heading
+        runway_threshold_coords = self.runway.x, self.runway.y
+        
+        # Calculate runway approach direction (opposite of runway heading)
+        approach_direction = (self.runway.phi_from_runway + 180) % 360
+        
+        # Define two distinct entry point positions with headings pointing to runway
+        entry_points = [
+            # First plane - Northeast approach
+            model.EntryPoint(54.0, 80.5, 50, [150]),  
+            # Second plane - West approach 
+            model.EntryPoint(10, 51, 270, [150])
+        ]
+        
+        # Calculate paths by extending along same heading from these points
+        curriculum_paths = []
+        
+        for base_entry in entry_points:
+            entry_coords = base_entry.x, base_entry.y
+            entry_heading = base_entry.phi
+            
+            # Calculate the heading from entry point to runway (in radians)
+            dx = runway_threshold_coords[0] - entry_coords[0]
+            dy = runway_threshold_coords[1] - entry_coords[1]
+            heading_to_runway = math.atan2(dx, dy)  # in radians
+            
+            # Calculate distance between entry point and runway
+            distance = math.sqrt(dx**2 + dy**2)
+            
+            # Generate curriculum entry points along this path
+            path_points = []
+            step_size = distance / (num_entrypoints + 1)
+            
+            for i in range(num_entrypoints):
+                # Calculate position along the line from runway to entry point
+                ratio = i / (num_entrypoints - 1)  # 0 to 1
+                # We want to start closer to runway and move outward
+                new_x = runway_threshold_coords[0] + dx * ratio
+                new_y = runway_threshold_coords[1] + dy * ratio
+                
+                # Create new entry point with same heading
+                new_entry = model.EntryPoint(new_x, new_y, entry_heading, base_entry.levels)
+                path_points.append(new_entry)
+            
+            curriculum_paths.append(path_points)
+        
+        # Return curriculum points as pairs of entry points
+        # First entries in each path are closest to runway
+        curriculum_entries = []
+        for i in range(num_entrypoints):
+            if i < len(curriculum_paths[0]) and i < len(curriculum_paths[1]):
+                # For each stage, we'll have two entry points
+                curr_entry = [curriculum_paths[0][i], curriculum_paths[1][i]]
+                curriculum_entries.append(curr_entry)
+        
+        return curriculum_entries

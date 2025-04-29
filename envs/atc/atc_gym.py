@@ -413,7 +413,7 @@ class AtcGym(gym.Env):
 
             c += 1
 
-        # If any aircraft reaches the approach corridor, terminate the episode immediately
+        # Check if any aircraft reaches the approach corridor, terminate the episode immediately
         if any(dones):
             self.done = True
             # Return early to avoid overwriting self.done
@@ -423,6 +423,38 @@ class AtcGym(gym.Env):
             self._update_metrics(reward)
             truncated = False
             return state, reward, self.done, truncated, {"original_state": self.state, "reward_components": reward_components}
+
+        # Check for collisions between aircraft
+        if len(self._airplanes) > 1:
+            for i in range(len(self._airplanes)):
+                for j in range(i + 1, len(self._airplanes)):
+                    plane1 = self._airplanes[i]
+                    plane2 = self._airplanes[j]
+                    
+                    # Calculate horizontal distance between aircraft
+                    distance = self.euclidean_dist(
+                        plane1.x - plane2.x, 
+                        plane1.y - plane2.y
+                    )
+                    
+                    # Convert to nautical miles for aviation standards
+                    distance_nm = distance / 1852  # 1 nautical mile = 1852 meters
+                    
+                    # Calculate vertical separation in feet
+                    vertical_sep = abs(plane1.h - plane2.h)
+                    
+                    # Check if aircraft are too close (standard separation minima)
+                    # Horizontal: 3 nautical miles, Vertical: 1000 feet
+                    if distance_nm < 3.0 and vertical_sep < 1000:
+                        # Collision detected - terminate episode
+                        collision_penalty = -100
+                        reward = collision_penalty
+                        reward_components["airspace_penalties"] += collision_penalty
+                        self.done = True
+                        logger.debug(f"Aircraft collision detected between {plane1.name} and {plane2.name}!")
+                        # Update the win/loss buffer
+                        self._win_buffer.append(0)
+                        break
 
         # NEW: Check if all aircraft are out of fuel
         if all(out_of_fuel):
@@ -558,7 +590,7 @@ class AtcGym(gym.Env):
         def reward_model(angle):
             return (-((angle - 22.5) / 202.0) ** 2.0 + 1.0) ** 32.0
 
-        # Calculate the relative angle between aircraft heading and runway
+        # Calculate the relative angle between aircraft heading and runway heading
         plane_to_runway = model.relative_angle(phi_to_runway, phi_plane)
         # Determine which side of the final approach course the aircraft is on
         side = np.sign(model.relative_angle(phi_to_runway, phi_rel_to_faf))
@@ -1310,6 +1342,7 @@ class AtcGym(gym.Env):
             
             # Get all available entry points
             available_entrypoints = self._scenario.entrypoints.copy()
+            
             # If there are fewer entry points than requested airplanes, duplicate some
             while len(available_entrypoints) < self._airplane_count:
                 available_entrypoints.extend(self._scenario.entrypoints)
@@ -1317,17 +1350,29 @@ class AtcGym(gym.Env):
             # Always use the first entry point and first altitude for each aircraft for deterministic start
             selected_entrypoints = available_entrypoints[:self._airplane_count]
 
-            # TODO: two planes shouldn't have the same entry point, otherwise they will collide immediately!
-            
             for i in range(self._airplane_count):
                 # Use a different entry point for each aircraft
                 entry_point = selected_entrypoints[i]
                 
+                # Handle the case where entry_point is a list (for multiple planes in curriculum)
+                # This happens when we have a list of entry points for multiple planes
+                if isinstance(entry_point, list):
+                    # If entry_point is a list, use the appropriate entry point for this plane
+                    if i < len(entry_point):
+                        # If there are enough entry points in the list, use the corresponding one
+                        actual_entry_point = entry_point[i]
+                    else:
+                        # Otherwise, use the first entry point in the list (fallback)
+                        actual_entry_point = entry_point[0]
+                else:
+                    # Normal case: entry_point is a single EntryPoint object
+                    actual_entry_point = entry_point
+                
                 # Place the airplane exactly at the entry point (no randomization)
-                x = entry_point.x
-                y = entry_point.y
-                altitude = entry_point.levels[0] * 100  # Always use the first altitude
-                phi = entry_point.phi
+                x = actual_entry_point.x
+                y = actual_entry_point.y
+                altitude = actual_entry_point.levels[0] * 100  # Always use the first altitude
+                phi = actual_entry_point.phi
                 
                 # Create new airplane instances for the simulation
                 self._airplanes.append(
@@ -1346,7 +1391,7 @@ class AtcGym(gym.Env):
                 self._phi_rel_fafs.append(0)
                 self._phi_rel_runways.append(0)
                 self._on_gp_altitudes.append(0)
-                
+        
             # Reset state and tracking variables
             self.state = self._get_obs(0)
             # Normalize state if configured to do so

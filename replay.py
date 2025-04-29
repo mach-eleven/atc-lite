@@ -103,7 +103,7 @@ def add_arguments(parser):
     parser.add_argument(
         "--skip-frames",
         type=gt_0,
-        default=1,
+        default=100,
         help="Render every Nth frame (default: 1, i.e., no skipping)",
     )
     parser.add_argument(

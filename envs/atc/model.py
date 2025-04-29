@@ -54,8 +54,8 @@ def get_wind_speed(x, y, h, mva_type=None, badness=5):
     x_variation = math.sin(x * 0.1) * 2 * badness_factor
     y_variation = math.cos(y * 0.1) * 2 * badness_factor
     
-    wind_speed = base_wind_speed * altitude_factor
-    wind_direction = 270  # Default wind from west
+    wind_speed = base_wind_speed * altitude_factor + x_variation 
+    wind_direction = 270  + y_variation # Default wind from west
     
     # Apply terrain-specific wind adjustments based on MVA type
     if mva_type:

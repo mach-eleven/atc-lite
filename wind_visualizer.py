@@ -24,14 +24,14 @@ from envs.atc import model
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Visualize wind patterns across an airspace.')
-    parser.add_argument('--scenario', type=str, default='LOWW', 
+    parser.add_argument('--scenario', type=str, default='SupaSupa', 
                       choices=['LOWW', 'SuperSimple', 'SupaSupa'],
                       help='Scenario to visualize')
     parser.add_argument('--badness', type=int, default=5, choices=range(0, 11),
                       help='Wind badness level (0-10)')
     parser.add_argument('--resolution', type=float, default=0.5,
                       help='Sampling resolution in nautical miles')
-    parser.add_argument('--altitude', type=float, default=6000,
+    parser.add_argument('--altitude', type=float, default=20_000,
                       help='Aircraft altitude in feet for wind calculation')
     return parser.parse_args()
 

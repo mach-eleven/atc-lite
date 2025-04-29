@@ -100,7 +100,7 @@ class AtcGym(gym.Env):
         self._airspace = scenario.airspace
         # Get the MVA at the Final Approach Fix (FAF)
         self._faf_mva = self._airspace.get_mva_height(self._runway.corridor.faf[0][0], self._runway.corridor.faf[1][0])
-        self._wind = scenario.wind
+
         # Calculate world boundaries from the airspace
         bbox = self._airspace.get_bounding_box()
         self._world_x_min = bbox[0]
@@ -1133,41 +1133,205 @@ class AtcGym(gym.Env):
             dash.set_color(*ColorScheme.lines_info)
             self.viewer.add_geom(dash)
 
+    # def _render_wind(self):
+    #     """
+    #     Render the wind direction arrow on the screen
+    #     """
+    #     # airspace 
+    #     # self._wind is a Wind object
+    #     self._wind = self._scenario.wind
+    #     wind_field = self._wind.wind_field
+    #     # at each point in airspace, draw a line in the direction of the wind based on self._wind.resolution, we can discretize
+    #     discretization = int(self._wind.resolution)
+    #     for x in range(0, len(wind_field), discretization):
+    #         for y in range(0, len(wind_field[0]), discretization):
+
+    #             # get current MVA
+    #             try:
+    #                 # Find which MVA we're in and get its type
+    #                 mva = self._airspace.find_mva(x, y)
+    #                 mva_type = mva.mva_type
+    #             except ValueError:
+    #                 # Outside airspace, use generic wind
+    #                 mva_type = model.MvaType.GENERIC
+            
+    #             # Get the wind vector at this point
+    #             wind_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness)
+
+    #             # wind_vector = wind_field[x][y]
+    #             wind_speed = np.linalg.norm(wind_vector)
+    #             if wind_speed > 0:
+    #                 wind_vector /= wind_speed
+    #                 wind_vector *= 0.5 * self._scale
+    #                 vector = self._screen_vector(x, y)
+    #                 arrow = rendering.Line(
+    #                     (vector[0][0], vector[1][0]),
+    #                     (vector[0][0] + wind_vector[0], vector[1][0] + wind_vector[1])
+    #                 )
+    #                 arrow.set_color_opacity(*ColorScheme.wind)
+    #                 self.viewer.add_geom(arrow)
+                    
+    #                 # arrow base
+    #                 size = 2
+    #                 sqr = rendering.FilledPolygon([
+    #                     (arrow.start[0] - size, arrow.start[1] - size),
+    #                     (arrow.start[0] + size, arrow.start[1] - size),
+    #                     (arrow.start[0] + size, arrow.start[1] + size),
+    #                     (arrow.start[0] - size, arrow.start[1] + size)
+    #                 ])
+    #                 sqr.set_color_opacity(*ColorScheme.wind_arrow_base)
+
+    #                 self.viewer.add_geom(sqr)
+
+
     def _render_wind(self):
         """
-        Render the wind direction arrow on the screen
+        Render the wind as flow lines with color indicating wind speed
         """
-        # airspace 
-        # self._wind is a Wind object
+        # Get wind field from scenario
+        self._wind = self._scenario.wind
         wind_field = self._wind.wind_field
-        # at each point in airspace, draw a line in the direction of the wind based on self._wind.resolution, we can discretize
-        discretization = int(self._wind.resolution)
-        for x in range(0, len(wind_field), discretization):
-            for y in range(0, len(wind_field[0]), discretization):
-                wind_vector = wind_field[x][y]
-                wind_speed = np.linalg.norm(wind_vector)
-                if wind_speed > 0:
-                    wind_vector /= wind_speed
-                    wind_vector *= 0.5 * self._scale
-                    vector = self._screen_vector(x, y)
-                    arrow = rendering.Line(
-                        (vector[0][0], vector[1][0]),
-                        (vector[0][0] + wind_vector[0], vector[1][0] + wind_vector[1])
-                    )
-                    arrow.set_color_opacity(*ColorScheme.wind)
-                    self.viewer.add_geom(arrow)
+        
+        # Larger discretization for flow lines to avoid cluttering
+        flow_discretization = int(self._wind.resolution * 3)
+        
+        # Parameters for flow lines
+        flow_length = 3.0  # Length of each flow line
+        num_segments = 8   # Number of segments in each flow line
+        segment_length = flow_length / num_segments
+        
+        # Define color gradient for wind speeds (blue to red)
+        # Find max wind speed for normalization
+        max_wind_speed = 0.1  # Minimum to avoid division by zero
+        for x in range(0, len(wind_field), flow_discretization):
+            for y in range(0, len(wind_field[0]), flow_discretization):
+                try:
+                    mva = self._airspace.find_mva(x, y)
+                    mva_type = mva.mva_type
+                except ValueError:
+                    mva_type = model.MvaType.GENERIC
                     
-                    # arrow base
-                    size = 2
-                    sqr = rendering.FilledPolygon([
-                        (arrow.start[0] - size, arrow.start[1] - size),
-                        (arrow.start[0] + size, arrow.start[1] - size),
-                        (arrow.start[0] + size, arrow.start[1] + size),
-                        (arrow.start[0] - size, arrow.start[1] + size)
-                    ])
-                    sqr.set_color_opacity(*ColorScheme.wind_arrow_base)
-
-                    self.viewer.add_geom(sqr)
+                wind_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness)
+                wind_speed = np.linalg.norm(wind_vector)
+                max_wind_speed = max(max_wind_speed, wind_speed)
+        
+        # Create flow lines
+        for x in range(0, len(wind_field), flow_discretization):
+            for y in range(0, len(wind_field[0]), flow_discretization):
+                try:
+                    # Find which MVA we're in and get its type
+                    mva = self._airspace.find_mva(x, y)
+                    mva_type = mva.mva_type
+                except ValueError:
+                    # Outside airspace, use generic wind
+                    mva_type = model.MvaType.GENERIC
+            
+                # Get wind vector at starting point
+                start_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness)
+                wind_speed = np.linalg.norm(start_vector)
+                
+                # Skip areas with negligible wind
+                if wind_speed < 0.5:
+                    continue
+                    
+                # Normalize wind vector
+                unit_vector = start_vector / wind_speed if wind_speed > 0 else np.array([0, 0])
+                
+                # Calculate wind speed ratio for color interpolation
+                speed_ratio = min(wind_speed / max_wind_speed, 1.0)
+                
+                # Start position for flow line
+                current_x, current_y = x, y
+                
+                # Generate flow line points
+                flow_points = [(current_x, current_y)]
+                
+                # Create curved flow line by following wind vectors
+                for i in range(num_segments):
+                    # Get the next position by following the wind
+                    next_x = current_x + unit_vector[0] * segment_length
+                    next_y = current_y + unit_vector[1] * segment_length
+                    
+                    # Check if we're still in bounds
+                    if (0 <= next_x < len(wind_field) and 0 <= next_y < len(wind_field[0])):
+                        # Add point to flow line
+                        flow_points.append((next_x, next_y))
+                        
+                        # Update current position
+                        current_x, current_y = next_x, next_y
+                        
+                        # Get new wind vector at this position
+                        try:
+                            mva = self._airspace.find_mva(int(current_x), int(current_y))
+                            mva_type = mva.mva_type
+                        except ValueError:
+                            mva_type = model.MvaType.GENERIC
+                        
+                        next_vector = model.get_wind_speed(int(current_x), int(current_y), 
+                                                           20_000, mva_type, self._wind_badness)
+                        next_wind_speed = np.linalg.norm(next_vector)
+                        
+                        # Update unit vector (creates the curve effect)
+                        if next_wind_speed > 0:
+                            unit_vector = next_vector / next_wind_speed
+                    else:
+                        # Stop if we go out of bounds
+                        break
+                
+                # Draw the flow line if we have enough points
+                if len(flow_points) > 1:
+                    # Convert world coordinates to screen coordinates
+                    screen_points = []
+                    for point_x, point_y in flow_points:
+                        point = self._screen_vector(point_x, point_y)
+                        screen_points.append((point[0][0], point[1][0]))
+                    
+                    # Determine color based on wind speed
+                    # Blue for slow winds, cyan for medium, and white for fast winds
+                    if speed_ratio < 0.33:
+                        r, g, b = 0, 100, 255  # Blue
+                    elif speed_ratio < 0.66:
+                        r, g, b = 0, 200, 255  # Cyan
+                    else:
+                        r, g, b = 255, 255, 255  # White
+                    
+                    # Line width based on wind speed (1-3 pixels)
+                    line_width = 1 + int(speed_ratio * 2)
+                    
+                    # Draw the flow line
+                    flow_line = rendering.PolyLine(screen_points, False, linewidth=line_width)
+                    flow_line.set_color_opacity(r, g, b, 150)
+                    self.viewer.add_geom(flow_line)
+                    
+                    # Add arrowheads at intervals along the flow line
+                    if len(flow_points) > 3:
+                        # Add arrow at middle point
+                        mid_index = len(flow_points) // 2
+                        
+                        if mid_index > 0 and mid_index < len(flow_points) - 1:
+                            # Get direction from surrounding points
+                            prev_pt = screen_points[mid_index - 1]
+                            mid_pt = screen_points[mid_index]
+                            next_pt = screen_points[mid_index + 1]
+                            
+                            # Calculate angle based on surrounding points
+                            dx = next_pt[0] - prev_pt[0]
+                            dy = next_pt[1] - prev_pt[1]
+                            angle = math.atan2(dy, dx)
+                            
+                            # Arrow size based on wind speed
+                            arrow_size = 4 + int(speed_ratio * 4)
+                            
+                            # Create arrowhead
+                            arrowhead = rendering.FilledPolygon([
+                                (mid_pt[0], mid_pt[1]),
+                                (mid_pt[0] - arrow_size * math.cos(angle - math.pi/6), 
+                                 mid_pt[1] - arrow_size * math.sin(angle - math.pi/6)),
+                                (mid_pt[0] - arrow_size * math.cos(angle + math.pi/6), 
+                                 mid_pt[1] - arrow_size * math.sin(angle + math.pi/6))
+                            ])
+                            arrowhead.set_color_opacity(r, g, b, 200)
+                            self.viewer.add_geom(arrowhead)
                     
                 
 
@@ -1414,6 +1578,12 @@ class AtcGym(gym.Env):
                      (coord[1] - self._world_y_min) * self._scale + self._padding) for coord in coords]
 
 
+        if hasattr(self._scenario, "decorations") and self._scenario.decorations:
+            # Check if decorations are present in the scenario
+            logger.info(f"Decorations found: {self._scenario.decorations}")
+        else:
+            return
+        
         for decor in self._scenario.decorations:
             # decor is a shapely geometry
             # match it based on type

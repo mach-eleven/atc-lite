@@ -260,6 +260,12 @@ def add_arguments(parser):
         help="Save the trajectory of all airplanes in a Python file after replay.",
         default=False,
     )
+    parser.add_argument(
+        "--starting-fuel",
+        type=gt_0,
+        default=10000,
+        help="Amount of fuel (kg) the airplane starts with during replay",
+    )
 
 
 if __name__ == "__main__":
@@ -331,6 +337,7 @@ if __name__ == "__main__":
         ),
         scenario=scenario,
         render_mode=render_mode,  # Use the determined render mode
+        starting_fuel=args.starting_fuel,
     )
     model_ = PPO.load(
         args.checkpoint,

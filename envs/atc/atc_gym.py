@@ -906,8 +906,31 @@ class AtcGym(gym.Env):
         Args:
             airplane: The aircraft to render
         """
-        # Get screen coordinates for the airplane
-        vector = self._screen_vector(airplane.x, airplane.y)
+        # Check if the plane has reached the FAF
+        plane_reached_faf = hasattr(airplane, 'reached_faf') and airplane.reached_faf
+        
+        # For planes that have reached the FAF, place them on the runway
+        # Otherwise, use their actual position
+        if plane_reached_faf:
+            # Position the aircraft at runway coordinates with slight offset
+            # Calculate position along the runway centerline
+            runway_vector = self._screen_vector(self._runway.x, self._runway.y)
+            
+            # Get the airplane index to add variation in touchdown point for multiple aircraft
+            airplane_index = next((i for i, a in enumerate(self._airplanes) if a is airplane), 0)
+            
+            # Calculate an offset so planes don't stack on top of each other
+            # Position aircraft at different points along the runway
+            runway_offset = np.array([[0], [airplane_index * 20]])  # 20 pixel spacing
+            
+            # Rotate offset to align with runway heading
+            rotated_offset = np.dot(model.rot_matrix(self._runway.phi_from_runway), runway_offset)
+            
+            # Final vector for plane that has reached FAF
+            vector = runway_vector + rotated_offset
+        else:
+            # Normal case - use actual aircraft position
+            vector = self._screen_vector(airplane.x, airplane.y)
         
         # Get airplane index to determine which color to use
         airplane_index = next((i for i, a in enumerate(self._airplanes) if a is airplane), 0)
@@ -915,6 +938,9 @@ class AtcGym(gym.Env):
         color_index = airplane_index % len(self.trajectory_colors)
         # Get this airplane's trajectory color
         traj_color = self.trajectory_colors[color_index]
+        
+        # Set opacity based on FAF status
+        opacity = 100 if plane_reached_faf else 255
         
         # If we can use the airplane image
         if hasattr(self, 'use_airplane_image') and self.use_airplane_image and hasattr(self, 'airplane_image'):
@@ -924,16 +950,20 @@ class AtcGym(gym.Env):
             # Apply color tint to match trajectory color
             sprite.color = traj_color
             
+            # Apply opacity based on FAF status
+            sprite.opacity = opacity
+            
             # Scale the sprite (adjust this value to change size)
             scale_factor = 0.15
             sprite.scale = scale_factor
             
-            # Position the sprite at the airplane's coordinates
+            # Position the sprite at the calculated position
             sprite.x = vector[0][0]
             sprite.y = vector[1][0]
             
-            # Rotate the sprite to match the airplane's TRACK 
-            sprite_rotation = airplane.track
+            # For planes that reached the FAF, align with runway heading
+            # Otherwise, use plane's actual track
+            sprite_rotation = self._runway.phi_to_runway if plane_reached_faf else airplane.track
             sprite.rotation = sprite_rotation
             
             # Draw the sprite
@@ -966,16 +996,27 @@ class AtcGym(gym.Env):
                 (corner_top_left[0][0], corner_top_left[1][0])
             ])
             
-            # Set fill color to match trajectory color but with some transparency
-            filled_symbol.set_color_opacity(traj_color[0], traj_color[1], traj_color[2], 150)
+            # Set fill color with appropriate opacity
+            filled_symbol.set_color_opacity(traj_color[0], traj_color[1], traj_color[2], opacity)
                 
             self.viewer.add_onetime(filled_symbol)
 
             aircraft_symbol_transform = rendering.Transform()
-            aircraft_symbol_transform.set_rotation(math.radians(airplane.track))
+            # Set rotation to runway heading if the plane reached FAF
+            rotation = math.radians(self._runway.phi_to_runway if plane_reached_faf else airplane.track)
+            aircraft_symbol_transform.set_rotation(rotation)
             symbol.add_attr(aircraft_symbol_transform)
             filled_symbol.add_attr(aircraft_symbol_transform)
 
+        # If plane reached FAF, don't render additional graphics like arrows and labels
+        if plane_reached_faf:
+            # Just add a simple "Landed" indicator
+            landed_text = f"{airplane.name} LANDED"
+            label_landed = Label(landed_text, vector[0][0] + 20, vector[1][0] + 20, bold=True)
+            self.viewer.add_onetime(label_landed)
+            return
+            
+        # The rest of the render code for active planes (arrows, labels, etc.)
         # Add track arrow to show actual direction of movement
         track_arrow_length = 12 * 6  # Long arrow
         track_arrow_vector = np.array([[track_arrow_length], [0]])
@@ -1655,7 +1696,6 @@ class AtcGym(gym.Env):
         def transform_world_to_screen(coords):
             return [((coord[0] - self._world_x_min) * self._scale + self._padding,
                      (coord[1] - self._world_y_min) * self._scale + self._padding) for coord in coords]
-
 
         if hasattr(self._scenario, "decorations") and self._scenario.decorations:
             # Check if decorations are present in the scenario

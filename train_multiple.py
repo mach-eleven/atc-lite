@@ -76,6 +76,9 @@ if __name__ == "__main__":
         sys.exit(1)
     if args.scenario in ['SimpleScenario', 'SuperSimple', 'LOWW']:
         scenario = scenario_class(random_entrypoints=args.random_entry)
+    elif args.scenario == 'MvaGoAroundScenario':
+        # Special handling for MvaGoAroundScenario for multi-plane training
+        scenario = scenario_class()
     elif args.scenario == 'CurriculumTrainingScenario':
         scenario = scenario_class()  # Uses default entry points
     else:

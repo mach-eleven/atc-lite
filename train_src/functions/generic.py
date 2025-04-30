@@ -50,24 +50,10 @@ def train_generic_simple(args, reward_keys):
     logger.info(f"Using scenario: LOWW with 5 fixed entry points")
     logger.info(f"="*80)
 
+    
     # Get the last stage of entry points (assuming 1 stage)
-    all_curriculum_entry_points = scenarios.LOWW().generate_curriculum_entrypoint_but_many(num_entrypoints=1)
-    
-    # Get the entry points from the last stage (index 0 since we only have 1 stage)
-    last_stage_entry_points = all_curriculum_entry_points[0]
-    
-    # Select 5 entry points from the last stage with good distribution
-    # Select every nth entry point to get 5 well-distributed points
-    entry_points = []
-    step = max(1, len(last_stage_entry_points) // 5)
-    for i in range(0, min(5 * step, len(last_stage_entry_points)), step):
-        if i < len(last_stage_entry_points):
-            entry_points.append(last_stage_entry_points[i])
-    
-    # Make sure we have exactly 5 entry points
-    while len(entry_points) < 5 and len(last_stage_entry_points) > 0:
-        entry_points.append(last_stage_entry_points[0])
-    
+    entry_points = scenarios.LOWW().generate_last_bound_entry_points()
+    logger.info(f"Entry points: {entry_points}")
     logger.info(f"Selected {len(entry_points)} entry points for training")
     
     # Setup the output directory

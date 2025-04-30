@@ -39,19 +39,19 @@ class SimpleScenario(Scenario):
         # Each MVA is defined by a polygon (coordinates in nautical miles) and a minimum altitude (in feet)
         
         # MVA region 1: Southeast region with 3500ft minimum
-        mva_1 = model.MinimumVectoringAltitude(shape.Polygon([(15, 0), (35, 0), (35, 26)]), 3500) #PRANJAL WANTS TO DRAW THIS SHIT
+        mva_1 = model.MinimumVectoringAltitude(shape.Polygon([(15, 0), (35, 0), (35, 26)]), 35) #PRANJAL WANTS TO DRAW THIS SHIT
         
         # MVA region 2: Central-east region with 2400ft minimum (lower, likely closer to airport)
-        mva_2 = model.MinimumVectoringAltitude(shape.Polygon([(15, 0), (35, 26), (35, 30), (15, 30), (15, 27.8)]), 2400)
+        mva_2 = model.MinimumVectoringAltitude(shape.Polygon([(15, 0), (35, 26), (35, 30), (15, 30), (15, 27.8)]), 240)
         
         # MVA region 3: Northeast region with 4000ft minimum
-        mva_3 = model.MinimumVectoringAltitude(shape.Polygon([(15, 30), (35, 30), (35, 40), (15, 40)]), 4000)
+        mva_3 = model.MinimumVectoringAltitude(shape.Polygon([(15, 30), (35, 30), (35, 40), (15, 40)]), 400)
         
         # MVA region 4: Southwest region with 8000ft minimum (highest, likely mountainous terrain)
-        mva_4 = model.MinimumVectoringAltitude(shape.Polygon([(0, 10), (15, 0), (15, 28.7), (0, 17)]), 8000)
+        mva_4 = model.MinimumVectoringAltitude(shape.Polygon([(0, 10), (15, 0), (15, 28.7), (0, 17)]), 800)
         
         # MVA region 5: Northwest region with 6500ft minimum
-        mva_5 = model.MinimumVectoringAltitude(shape.Polygon([(0, 17), (15, 28.7), (15, 40), (0, 32)]), 6500)
+        mva_5 = model.MinimumVectoringAltitude(shape.Polygon([(0, 17), (15, 28.7), (15, 40), (0, 32)]), 650)
         
 
         # Combine all MVAs into a list
@@ -66,45 +66,13 @@ class SimpleScenario(Scenario):
         
         # Create the runway object with the specified parameters
         self.runway = model.Runway(x, y, h, phi)
-        
-        # Create the airspace object by combining MVAs and runway
         self.airspace = model.Airspace(self.mvas, self.runway)
-
-        # Create the wind object 
         self.wind = model.Wind((0, 35, 0, 40))
-        # Define a single entry point where aircraft enter the simulation
-        # Parameters: (x, y, initial heading, list of possible altitudes in 100s of feet)
-        # Create multiple random entry points around the edges of the airspace
-        self.entrypoints = []
-        
-        # Number of entry points to create
-        num_points = 20
-        
-        for _ in range(num_points):
-            # Randomly choose which edge to place the entry point
-            edge = random.randint(0, 3)
-
-            # this is not random entry point!!!!! - disappointing
-            if edge == 0:  # Top edge
-                x = random.uniform(0, 35)
-                y = 40
-                heading = random.choice([180, 225, 270])
-            elif edge == 1:  # Right edge
-                x = 35
-                y = random.uniform(0, 40)
-                heading = random.choice([180, 225, 270])
-            elif edge == 2:  # Bottom edge
-                x = random.uniform(0, 35)
-                y = 0
-                heading = random.choice([0, 45, 90])
-            else:  # Left edge
-                x = 0
-                y = random.uniform(0, 40)
-                heading = random.choice([45, 90, 135])
-            
-            # Create entry point with random altitude between 100-200 hundred feet
-            altitude = random.randint(100, 200)
-            self.entrypoints.append(model.EntryPoint(x, y, heading, [altitude]))
+        # Two fixed entry points, far apart, both facing the runway
+        self.entrypoints = [
+            model.EntryPoint(5, 33, 135, [280]),    # Moved inside, upper left
+            model.EntryPoint(30, 35, 225, [280])   # Upper right, inside
+        ]
 
 
 class SimpleTrainingScenario(Scenario):

@@ -14,7 +14,7 @@ class MvaGoAroundScenario(Scenario):
     Scenario where the aircraft must go around a high MVA region to reach the runway.
     The MVA is placed directly between the entry point and the runway, forcing a detour.
     """
-    def __init__(self, random_entrypoints=False, entry_point=None):
+    def __init__(self):
         super().__init__()
         # Central high MVA obstacle
         mva_obstacle = model.MinimumVectoringAltitude(
@@ -88,27 +88,11 @@ class MvaGoAroundScenario(Scenario):
         # Wind: moderate, with some swirl
         self.wind = model.Wind((0, 40, 0, 40), swirl_scale=2.0)
 
-        if entry_point is not None:
-            # For curriculum learning with a specific entry point (or entry points)
-            if isinstance(entry_point, list):
-                self.entrypoints = entry_point
-            else:
-                self.entrypoints = [entry_point]
-        elif random_entrypoints:
-            # Random entry points for more varied training
-            self.entrypoints = [
-                model.EntryPoint(5, 20, 90, [150]),
-                model.EntryPoint(5, 10, 45, [150]),
-                model.EntryPoint(5, 30, 135, [150]),
-                model.EntryPoint(20, 5, 0, [150]),
-                model.EntryPoint(20, 35, 180, [150])
-            ]
-        else:
-            # Default entry points for the scenario - single plane and two-plane setup
-            self.entrypoints = [
-                model.EntryPoint(5, 20, 90, [150]),  # Left approach
-                model.EntryPoint(20, 5, 0, [150])    # Bottom approach for two-plane scenario
-            ]
+        # Fixed entry points for consistency across scenarios
+        self.entrypoints = [
+            model.EntryPoint(2, 2, 45, [150]),   # Southwest corner, heading NE
+            model.EntryPoint(33, 38, 225, [150]) # Northeast corner, heading SW
+        ]
 
     def generate_curriculum_entrypoints(self, num_entrypoints: int) -> List[List[model.EntryPoint]]:
         """

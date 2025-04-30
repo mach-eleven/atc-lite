@@ -225,6 +225,43 @@ def validate_and_get_entry_point(entry, heading, level, curr_stage_entry_point, 
         return entry_point
 
 
+def print_curriculum_entry_points(scenario_name, num_stages):
+    """
+    Print entry points for each curriculum stage for debugging.
+    """
+    try:
+        # Create scenario instance based on scenario name
+        scenario_class = getattr(scenarios, scenario_name)
+        scenario = scenario_class()
+        
+        logger.info(f"Printing curriculum entry points for {scenario_name}, {num_stages} stages:")
+        
+        # Check if the scenario has the generate_curriculum_entrypoints method
+        if hasattr(scenario, "generate_curriculum_entrypoints"):
+            curriculum_entries = scenario.generate_curriculum_entrypoints(num_entrypoints=num_stages)
+            
+            if curriculum_entries is None or len(curriculum_entries) == 0:
+                logger.warning(f"No curriculum entry points generated for {scenario_name}")
+                return
+                
+            # Print each entry point in the curriculum
+            for i, entry_point in enumerate(curriculum_entries):
+                if isinstance(entry_point, list):
+                    # Multiple entry points (e.g. for 2 airplanes)
+                    entry_str = " | ".join([f"({ep.x:.2f}, {ep.y:.2f}, phi={ep.phi:.2f})" for ep in entry_point])
+                    logger.info(f"Stage {i+1}/{len(curriculum_entries)}: {entry_str}")
+                else:
+                    # Single entry point
+                    logger.info(f"Stage {i+1}/{len(curriculum_entries)}: ({entry_point.x:.2f}, {entry_point.y:.2f}, phi={entry_point.phi:.2f})")
+        else:
+            logger.warning(f"Scenario {scenario_name} does not support curriculum entry points")
+            
+    except AttributeError:
+        logger.error(f"Scenario {scenario_name} not found or does not support curriculum entry points")
+    except Exception as e:
+        logger.error(f"Error printing curriculum entry points: {e}")
+
+
 def add_arguments(parser):
     """
     Add command line arguments for training.
@@ -364,6 +401,11 @@ if __name__ == "__main__":
     except AttributeError:
         logger.error(f"Scenario {args.scenario} not found in envs.atc.scenarios.")
         sys.exit(1)
+    
+    # Print curriculum entry points for debugging
+    if args.curr_stage_entry_point != "max":
+        logger.info(f"Printing curriculum entry points for {args.scenario}")
+        print_curriculum_entry_points(args.scenario, args.curr_stages)
         
     # Get the initial entry point(s) for the scenario
     entry_point = validate_and_get_entry_point(

@@ -9,5 +9,5 @@ python3 train.py --model ppo_sb3 --num-airplanes 1 \
  --starting-fuel 500 \
  --reduced-time-penalty \
  --wind-badness 10 \
- --scenario ModifiedLOWW \
+ --scenario MvaGoAroundScenario \
  --wind-dirn 300

@@ -74,11 +74,9 @@ if __name__ == "__main__":
 
     # Import after parsing args to reduce unnecessary imports
     from envs.atc import scenarios
-    
     # Load the specified scenario
     logger.info(f"Using scenario: {args.scenario} with {args.num_airplanes} airplanes")
-    
-    # Create scenario instance based on scenario name
+    # Always get the class from the scenarios module
     try:
         scenario_class = getattr(scenarios, args.scenario)
     except AttributeError:

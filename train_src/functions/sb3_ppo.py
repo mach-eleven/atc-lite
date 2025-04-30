@@ -1,7 +1,9 @@
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+import platform
+from pathlib import Path
+import time
 from stable_baselines3 import PPO
-
 import logging
 
 import torch
@@ -34,8 +36,22 @@ def train_sb3_ppo(args, reward_keys, scenario=None, num_airplanes=1):
             starting_fuel=args.starting_fuel
         )
     
+    # Determine which vector environment to use based on OS
+    # Windows has issues with SubprocVecEnv, so use DummyVecEnv on Windows
+    if platform.system() == 'Windows':
+        vec_env_cls = DummyVecEnv
+        logger.info("Using DummyVecEnv for Windows compatibility")
+        # Adjust threads for Windows - DummyVecEnv doesn't benefit from many threads
+        actual_threads = min(4, args.threads)
+        if actual_threads < args.threads:
+            logger.info(f"Reducing threads from {args.threads} to {actual_threads} for Windows DummyVecEnv")
+    else:
+        vec_env_cls = SubprocVecEnv
+        actual_threads = args.threads
+        logger.info(f"Using SubprocVecEnv with {actual_threads} threads")
+    
     env = my_env()
-    vec_env = make_vec_env(my_env, n_envs=args.threads, vec_env_cls=SubprocVecEnv)
+    vec_env = make_vec_env(my_env, n_envs=actual_threads, vec_env_cls=vec_env_cls)
     logger.info(f"Training with {num_airplanes} airplanes in scenario: {scenario.__class__.__name__ if scenario else 'SupaSupa'}")
     logger.info(f"Wind settings - Badness: {args.wind_badness}, Direction: {args.wind_dirn if hasattr(args, 'wind_dirn') else 270}")
     logger.info(f"="*80)

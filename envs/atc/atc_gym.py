@@ -55,7 +55,7 @@ class AtcGym(gym.Env):
         "render_fps": 50
     }
 
-    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5, wind_dirn=270, starting_fuel=10000):
+    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5, wind_dirn=270, starting_fuel=10000, reduced_time_penalty=False):
         """
         Initialize the ATC gym environment
         
@@ -74,6 +74,9 @@ class AtcGym(gym.Env):
         self._wind_dirn = wind_dirn
         self._starting_fuel = starting_fuel  # Store the starting fuel amount
         # print(f"Wind badness: {self._wind_badness} | Wind direction: {self._wind_dirn}")
+
+        self.reduced_time_penalty = reduced_time_penalty
+        # logger.info(f"Reduced time penalty: {self.reduced_time_penalty}")
         self.render_mode = render_mode
         
         # Use a default scenario if none provided
@@ -256,7 +259,10 @@ class AtcGym(gym.Env):
         self.timesteps += 1
         self.done = False
         # Small negative reward per timestep to encourage efficiency
-        time_penalty = -0.5 * self._sim_parameters.timestep  # Scaled up for normalization
+        if self.reduced_time_penalty:
+            time_penalty = -0.05 * self._sim_parameters.timestep
+        else:
+            time_penalty = -0.5 * self._sim_parameters.timestep  # Scaled up for normalization
         reward = time_penalty
         
         # Dictionary to track reward components for logging
@@ -1386,7 +1392,7 @@ class AtcGym(gym.Env):
 
     def _render_runway(self):
         """
-        Renders the runway symbol onto the screen
+        Renders the runway symbol onto the screen with approach corridor
         """
         runway_length = 1.7 * self._scale
         runway_to_threshold_vector = \
@@ -1401,6 +1407,39 @@ class AtcGym(gym.Env):
         runway_line = rendering.Line(start_point, end_point, attrs={"linewidth": 10})
         runway_line.set_color(*ColorScheme.runway)
         self.viewer.add_geom(runway_line)
+
+        # Render the approach corridor shape
+        corridor = self._runway.corridor
+        if hasattr(corridor, 'corridor_horizontal') and corridor.corridor_horizontal is not None:
+            # Get the coordinates of the horizontal corridor polygon
+            coords = corridor.corridor_horizontal.exterior.coords
+            
+            # Transform world coordinates to screen coordinates
+            screen_coords = []
+            for coord in coords:
+                point = self._screen_vector(coord[0], coord[1])
+                screen_coords.append((point[0][0], point[1][0]))
+            
+            # Create filled polygon with transparent fill
+            corridor_fill = rendering.FilledPolygon(screen_coords)
+            corridor_fill.set_color_opacity(0, 150, 0, 50)  # Light green with transparency
+            self.viewer.add_geom(corridor_fill)
+            
+            # Add outline
+            corridor_outline = rendering.PolyLine(screen_coords, True, linewidth=2)
+            corridor_outline.set_color(0, 200, 0)  # Green outline
+            self.viewer.add_geom(corridor_outline)
+            
+            # Add a label indicating this is the approach corridor
+            # Find a good position for the label (center of the polygon)
+            if len(screen_coords) > 0:
+                x_coords = [p[0] for p in screen_coords]
+                y_coords = [p[1] for p in screen_coords]
+                label_x = sum(x_coords) / len(x_coords)
+                label_y = sum(y_coords) / len(y_coords)
+                
+                # corridor_label = Label("APPROACH CORRIDOR", label_x, label_y, bold=True)
+                # self.viewer.add_geom(corridor_label)
 
     def _screen_vector(self, x, y):
         """

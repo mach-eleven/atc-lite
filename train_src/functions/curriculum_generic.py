@@ -24,11 +24,8 @@ from torch.utils.tensorboard import SummaryWriter
 logger = logging.getLogger("train.gen")
 logger.setLevel(logging.INFO)
 
-def train_generalized_model(args, reward_keys, scenario=None, num_airplanes=1):
+def train_generalized_model(args, reward_keys):
 
-    if num_airplanes != 1:
-        raise ValueError("This function is only designed for single airplane scenarios.")
-    
     log_info("GENERALIZE_CURR_PPO_ONLY_LOWW", args, logger)
 
     """ Create the environment """
@@ -41,7 +38,7 @@ def train_generalized_model(args, reward_keys, scenario=None, num_airplanes=1):
             scenario_obj = scenarios.LOWW(entry_point=curriculum_entry_point)
 
         return AtcGym(
-            airplane_count=num_airplanes,
+            airplane_count=1,
             sim_parameters=model.SimParameters(
                 1.0, discrete_action_space=False, normalize_state=True
             ),
@@ -49,9 +46,10 @@ def train_generalized_model(args, reward_keys, scenario=None, num_airplanes=1):
             render_mode="headless",
             wind_badness=5 if scenario == 1 else 10,
             wind_dirn=270 if scenario == 1 else 220,
+            reduced_time_penalty=args.reduced_time_penalty,
         )
     
-    logger.info(f"Training with {num_airplanes} airplanes in curriculum learning with {args.curr_stages} stages")
+    logger.info(f"Training with {1} airplanes in curriculum learning with {args.curr_stages} stages")
     logger.info(f"Using scenario: {args.scenario}")
     logger.info(f"="*80)
 
@@ -268,7 +266,7 @@ def train_generalized_model(args, reward_keys, scenario=None, num_airplanes=1):
                             plotter.update(ep, eval_components)
                             plotter.save(stage_dir)
 
-                        episode_success = eval_components["success_rewards"] > (500 * num_airplanes) 
+                        episode_success = eval_components["success_rewards"] > (500 * 1) 
                         recent_successes.append(episode_success)
                         if len(recent_successes) > args.curr_window_size:
                             recent_successes.pop(0)

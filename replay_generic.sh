@@ -1,1 +1,1 @@
-python3 replay.py --checkpoint new_logs/gen/stage1_many_entry_many_hdg/curr_model_stage1_many_entry_many_hdg_ep40.zip --scenario LOWW --curr-stages 30 --curr-stage-entry-point 1
+python3 replay.py --checkpoint /Users/pjr/Desktop/Plaksha/sem6/RL/project/atc-lite/new_logs/gen_beta/stage10_many_entry_many_hdg/curr_model_stage10_many_entry_many_hdg_ep120.zip --scenario LOWW --curr-stages 30 --curr-stage-entry-point 10 --episodes 5

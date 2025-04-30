@@ -265,23 +265,29 @@ class LOWW(Scenario):
             # First plane - Northeast approach
             model.EntryPoint(54.0, 80.5, 50, [150]),  
             # Second plane - West approach 
-            model.EntryPoint(10, 51, 270, [150])
+            model.EntryPoint(10, 51, 270, [150]) 
         ]
         
         # Calculate paths by extending along same heading from these points
         curriculum_paths = []
         
+        # Store approach vectors for both entry points (for later adjustment)
+        approach_vectors = []
+        
         for base_entry in entry_points:
             entry_coords = base_entry.x, base_entry.y
             entry_heading = base_entry.phi
             
-            # Calculate the heading from entry point to runway (in radians)
-            dx = runway_threshold_coords[0] - entry_coords[0]
-            dy = runway_threshold_coords[1] - entry_coords[1]
-            heading_to_runway = math.atan2(dy, dx)  # in radians, corrected order of dy, dx
-            
-            # Calculate distance between entry point and runway
+            # Calculate the heading from runway to entry point (in radians)
+            dx = entry_coords[0] - runway_threshold_coords[0]
+            dy = entry_coords[1] - runway_threshold_coords[1]
             distance = math.sqrt(dx**2 + dy**2)
+            
+            # Store the unit vector from runway to entry point (for path adjustments)
+            if distance > 0:
+                approach_vectors.append((dx/distance, dy/distance))
+            else:
+                approach_vectors.append((0, 0)) # Failsafe
             
             # Generate curriculum entry points along this path
             path_points = []
@@ -300,8 +306,8 @@ class LOWW(Scenario):
             
             curriculum_paths.append(path_points)
         
-        # Ensure planes are at least 5 nautical miles apart (9260 meters)
-        min_separation = 5.0  # 5 nautical miles in meters
+        # Ensure planes are at least 5 nautical miles 
+        min_separation = 5  # dont change this
         curriculum_entries = []
         
         # Check and adjust entry points to maintain minimum separation
@@ -316,59 +322,103 @@ class LOWW(Scenario):
             
             # If too close, adjust positions
             if distance < min_separation:
-                # Calculate adjustment vector
+                # Calculate additional distance needed along each approach path
                 adjustment_needed = min_separation - distance
-                if distance > 0:  # Avoid division by zero
-                    # Unit vector from entry2 to entry1
-                    ux = dx / distance
-                    uy = dy / distance
+                
+                # We'll move both aircraft further out along their approach paths
+                # This maintains their heading to the runway while ensuring separation
+                
+                # Get the approach vectors (unit vectors from runway to entry point)
+                approach_vector1 = approach_vectors[0]
+                approach_vector2 = approach_vectors[1]
+                
+                # Calculate how far to move each aircraft
+                # We'll move them both by the same amount to maintain relative positions
+                adjustment_distance = adjustment_needed * 0.75  # Move a bit more to ensure separation
+                
+                # Move both entry points outward along their approach paths
+                entry1_adjusted = model.EntryPoint(
+                    entry1.x + approach_vector1[0] * adjustment_distance,
+                    entry1.y + approach_vector1[1] * adjustment_distance,
+                    entry1.phi,
+                    entry1.levels
+                )
+                
+                entry2_adjusted = model.EntryPoint(
+                    entry2.x + approach_vector2[0] * adjustment_distance,
+                    entry2.y + approach_vector2[1] * adjustment_distance,
+                    entry2.phi,
+                    entry2.levels
+                )
+                
+                # Check if the adjusted points are within the airspace bounds
+                minx, miny, maxx, maxy = self.airspace.get_bounding_box()
+                
+                # Verify new points are within bounds and properly separated
+                within_bounds = (
+                    entry1_adjusted.x >= minx and entry1_adjusted.x <= maxx and
+                    entry1_adjusted.y >= miny and entry1_adjusted.y <= maxy and
+                    entry2_adjusted.x >= minx and entry2_adjusted.x <= maxx and
+                    entry2_adjusted.y >= miny and entry2_adjusted.y <= maxy
+                )
+                
+                # Calculate new distance between adjusted points
+                new_dx = entry1_adjusted.x - entry2_adjusted.x
+                new_dy = entry1_adjusted.y - entry2_adjusted.y
+                new_distance = math.sqrt(new_dx**2 + new_dy**2)
+                
+                if within_bounds and new_distance >= min_separation:
+                    # Use adjusted points
+                    curriculum_entries.append([entry1_adjusted, entry2_adjusted])
                     
-                    # Apply half of the adjustment to each point in opposite directions
-                    half_adjustment = adjustment_needed / 2
-                    
-                    # Adjusted positions
-                    entry1_adjusted = model.EntryPoint(
-                        entry1.x + ux * half_adjustment,
-                        entry1.y + uy * half_adjustment,
-                        entry1.phi,
-                        entry1.levels
-                    )
-                    
-                    entry2_adjusted = model.EntryPoint(
-                        entry2.x - ux * half_adjustment,
-                        entry2.y - uy * half_adjustment,
-                        entry2.phi,
-                        entry2.levels
-                    )
-                    
-                    # Check if the adjusted points are within the airspace bounds
-                    minx, miny, maxx, maxy = self.airspace.get_bounding_box()
-                    
-                    # If either point is outside the airspace, use the original points but log a warning
-                    if (entry1_adjusted.x < minx or entry1_adjusted.x > maxx or 
-                        entry1_adjusted.y < miny or entry1_adjusted.y > maxy or
-                        entry2_adjusted.x < minx or entry2_adjusted.x > maxx or
-                        entry2_adjusted.y < miny or entry2_adjusted.y > maxy):
-                        logger.warning(f"Could not maintain 5NM separation for curriculum stage {i} "
-                                      f"without moving points outside airspace. Distance: {distance/1852:.1f}NM")
-                        curriculum_entries.append([entry1, entry2])
-                    else:
-                        # Use adjusted points
-                        curriculum_entries.append([entry1_adjusted, entry2_adjusted])
-                        
-                        # Log the adjustment
-                        logger.info(f"Adjusted entry points for stage {i} to maintain 5NM separation. "
-                                   f"Original distance: {distance/1852:.1f}NM, New distance: {min_separation/1852:.1f}NM")
+                    # Log the adjustment
+                    logger.info(f"Adjusted entry points for stage {i} by moving along approach paths. "
+                               f"Original distance: {distance/1852:.1f}NM, New distance: {new_distance/1852:.1f}NM")
                 else:
-                    # If points are at the same location (unlikely), offset one arbitrarily
-                    logger.warning(f"Entry points for stage {i} are at the same location. Applying arbitrary offset.")
-                    entry2_adjusted = model.EntryPoint(
-                        entry2.x + min_separation,
-                        entry2.y,
-                        entry2.phi,
-                        entry2.levels
-                    )
-                    curriculum_entries.append([entry1, entry2_adjusted])
+                    # If adjustment didn't work properly, use original strategy as fallback
+                    logger.warning(f"Could not adjust along approach paths for stage {i}, trying alternate strategy")
+                    
+                    # Move planes away from each other perpendicular to their connecting line
+                    # Calculate perpendicular vectors to the line connecting the two aircraft
+                    if distance > 0:
+                        # Unit vector perpendicular to the line connecting the two aircraft
+                        perp_ux = -dy / distance
+                        perp_uy = dx / distance
+                        
+                        # Apply perpendicular adjustment
+                        half_adjustment = adjustment_needed / 1.5  # Adjust for safety margin
+                        
+                        entry1_adjusted = model.EntryPoint(
+                            entry1.x + perp_ux * half_adjustment,
+                            entry1.y + perp_uy * half_adjustment,
+                            entry1.phi,
+                            entry1.levels
+                        )
+                        
+                        entry2_adjusted = model.EntryPoint(
+                            entry2.x - perp_ux * half_adjustment,
+                            entry2.y - perp_uy * half_adjustment,
+                            entry2.phi,
+                            entry2.levels
+                        )
+                        
+                        # Check if adjusted points are within bounds
+                        if (entry1_adjusted.x >= minx and entry1_adjusted.x <= maxx and
+                            entry1_adjusted.y >= miny and entry1_adjusted.y <= maxy and
+                            entry2_adjusted.x >= minx and entry2_adjusted.x <= maxx and
+                            entry2_adjusted.y >= miny and entry2_adjusted.y <= maxy):
+                            
+                            curriculum_entries.append([entry1_adjusted, entry2_adjusted])
+                            logger.info(f"Adjusted entry points for stage {i} using perpendicular movement. "
+                                      f"New distance: {min_separation/1852:.1f}NM")
+                        else:
+                            logger.warning(f"Could not maintain separation for curriculum stage {i} "
+                                         f"without moving points outside airspace. Using original points.")
+                            curriculum_entries.append([entry1, entry2])
+                    else:
+                        # Points at same location (unlikely), just use original
+                        logger.warning(f"Entry points for stage {i} are at the same location. Using original.")
+                        curriculum_entries.append([entry1, entry2])
             else:
                 # Already sufficiently separated
                 curriculum_entries.append([entry1, entry2])

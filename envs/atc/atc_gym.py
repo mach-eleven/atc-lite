@@ -904,7 +904,7 @@ class AtcGym(gym.Env):
         last_reward = f"Last reward: {self.last_reward:.2f}"
 
         # Create and add label geometries
-        label_total = Label(total_reward, 10, 40, bold=False)
+        label_total = Label(total_reward, 10, 48, bold=False)
         label_last = Label(last_reward, 10, 25, bold=False)
 
         self.viewer.add_onetime(label_total)
@@ -1127,9 +1127,9 @@ class AtcGym(gym.Env):
         render_text = f"FL{render_altitude:03} {render_speed}kt"
         
         # Position labels a bit offset from the aircraft
-        label_offset = 20  # Pixels
-        label_x = vector[0][0] + label_offset
-        label_y = vector[1][0] + label_offset
+        label_offset = 30  # Pixels
+        label_x = vector[0][0] - label_offset + 10
+        label_y = vector[1][0] - label_offset 
 
         # Add aircraft callsign and details labels
         label_name = Label(airplane.name, x=label_x, y=label_y)
@@ -1147,7 +1147,7 @@ class AtcGym(gym.Env):
         # Add a fuel gauge near the airplane
         fuel_gauge = FuelGauge(
             x=label_x, 
-            y=label_y - 80,
+            y=label_y - 100,
             width=50,
             height=8,
             fuel_percentage=airplane.fuel_remaining_pct,
@@ -1157,29 +1157,56 @@ class AtcGym(gym.Env):
     def _render_all_aircraft_info_panel(self, airplanes: list[model.Airplane]):
         """
         Render aircraft parameters as text labels in the corner of the screen
+        with improved spacing for better readability
         """
         # Position for the labels - bottom right corner with padding
-        x_pos = self.viewer.width - 280  # Further right for more space
-        y_pos = self.viewer.height - 10  # Top side with margin
+        x_pos = self.viewer.width - 300  # Further right for more space
+        y_pos = self.viewer.height - 20  # Top side with margin
 
-        # Create labels for aircraft parameters
-        title = Label("AIRCRAFT PARAMETERS", x_pos, y_pos)
+        # Create title with larger font
+        title = Label("AIRCRAFT PARAMETERS", x_pos, y_pos, bold=True)
         self.viewer.add_onetime(title)
         
-        # Add a legend for the visualization - removed dotted line reference
-        legend_y = y_pos - 30
-        legend_title = Label("LEGEND:", x_pos, legend_y)
-        legend_heading = Label("Blue Arrow: Aircraft Heading", x_pos, legend_y - 25)
-        legend_track = Label("Green Arrow: Ground Track", x_pos, legend_y - 50)
+        # # Add a legend for the visualization with better spacing
+        # legend_y = y_pos - 40  # Increased spacing below title
+        # legend_title = Label("LEGEND:", x_pos, legend_y, bold=True)
+        # legend_heading = Label("Blue Arrow: Aircraft Heading", x_pos, legend_y - 30)
+        # legend_track = Label("Green Arrow: Ground Track", x_pos, legend_y - 60)
         
-        self.viewer.add_onetime(legend_title)
-        self.viewer.add_onetime(legend_heading)
-        self.viewer.add_onetime(legend_track)
+        # self.viewer.add_onetime(legend_title)
+        # self.viewer.add_onetime(legend_heading)
+        # self.viewer.add_onetime(legend_track)
         
         # Start aircraft details below the legend with more spacing
-        panel_y = legend_y - 85  # Reduced spacing since we removed one legend item
+        # panel_y = legend_y - 100  # Increased spacing after legend
+        
+        # Add horizontal separator line
+        # separator = rendering.Line((x_pos - 10, panel_y + 10), (x_pos + 280, panel_y + 10))
+        # separator.set_color(200, 200, 200)  # Light gray
+        # self.viewer.add_onetime(separator)
         
         for airplane_index, airplane in enumerate(airplanes):
+            # Add aircraft title with colored background to match aircraft color
+            aircraft_title_y = y_pos - 30
+            
+            # Get airplane's color from trajectory colors
+            color_index = airplane_index % len(self.trajectory_colors)
+            traj_color = self.trajectory_colors[color_index]
+
+            x_pos = x_pos + 5  # Indent for better visibility
+            # Add colored rectangle behind aircraft title
+            title_bg = rendering.FilledPolygon([
+                (x_pos - 5, aircraft_title_y + 5),
+                (x_pos + 270, aircraft_title_y + 5),
+                (x_pos + 270, aircraft_title_y - 30),
+                (x_pos - 5, aircraft_title_y - 30)
+            ])
+            title_bg.set_color_opacity(traj_color[0], traj_color[1], traj_color[2], 100)
+            self.viewer.add_onetime(title_bg)
+            
+            # Add aircraft title with larger font
+            aircraft_title = Label(f"FLIGHT {airplane.name}", x_pos, aircraft_title_y, bold=True)
+            self.viewer.add_onetime(aircraft_title)
             
             # Get current MVA with error handling
             try:
@@ -1191,40 +1218,78 @@ class AtcGym(gym.Env):
             # Calculate crab angle (difference between heading and track)
             crab_angle = model.relative_angle(airplane.phi, airplane.track)
             
-            # Create parameter strings
-            params = [
-                f"Flight: {airplane.name}",
+            # Create parameter strings with improved formatting and grouping
+            position_params = [
                 f"Position: ({airplane.x:.1f}, {airplane.y:.1f})",
-                f"Altitude: {airplane.h} ft",
+                f"Altitude: {airplane.h} ft"
+            ]
+            
+            direction_params = [
                 f"Heading: {airplane.phi:.1f}°",
                 f"Ground Track: {airplane.track:.1f}°",
-                f"Crab Angle: {crab_angle:.1f}°",
+                f"Crab Angle: {crab_angle:.1f}°"
+            ]
+            
+            speed_params = [
                 f"Airspeed: {airplane.v:.0f} knots",
                 f"Ground Speed: {airplane.ground_speed:.0f} knots",
-                f"Wind: {math.sqrt(airplane.wind_x**2 + airplane.wind_y**2):.1f} knots",
+                f"Wind: {math.sqrt(airplane.wind_x**2 + airplane.wind_y**2):.1f} knots"
+            ]
+            
+            approach_params = [
                 f"Distance to FAF: {self._d_fafs[airplane_index]:.1f} nm",
                 f"Height above MVA: {height_above_mva:.0f} ft",
                 f"Fuel remaining: {airplane.fuel_remaining_pct:.1f}%"
             ]
             
-            # Add parameter labels with more spacing between lines
-            for i, param in enumerate(params):
-                y = panel_y - 25 * i  # Increased spacing between lines
-                param_label = Label(param, x_pos, y)
-                self.viewer.add_onetime(param_label)
+            # Start position for parameter groups
+            group_y = aircraft_title_y - 40
+            line_spacing = 30  # Increased line spacing
+            
+            # Function to render a group of parameters
+            def render_param_group(params, start_y, group_title=None):
+                y = start_y
+                if group_title:
+                    group_label = Label(group_title, x_pos, y, bold=True)
+                    self.viewer.add_onetime(group_label)
+                    y -= 25  # Space after group title
+                
+                for param in params:
+                    param_label = Label(param, x_pos + 10, y)  # Indent parameters
+                    self.viewer.add_onetime(param_label)
+                    y -= line_spacing
+                
+                return y  # Return the new y position
+            
+            # Render each group with titles
+            group_y = render_param_group(position_params, group_y, "Position")
+            group_y -= 10  # Extra space between groups
+            group_y = render_param_group(direction_params, group_y, "Direction")
+            group_y -= 10  # Extra space between groups
+            group_y = render_param_group(speed_params, group_y, "Speed")
+            group_y -= 10  # Extra space between groups
+            group_y = render_param_group(approach_params, group_y, "Approach")
+            group_y -= 20  # Extra space for fuel gauge
 
             # Add fuel gauge below parameters
             fuel_gauge = FuelGauge(
-                x=x_pos,
-                y=panel_y - 25 * (len(params) + 1),
-                width=200,
-                height=15,  # Taller gauge
+                x=x_pos + 10,  # Indent gauge
+                y=group_y,
+                width=220,
+                height=20,  # Taller gauge for better visibility
                 fuel_percentage=airplane.fuel_remaining_pct,
             )
             self.viewer.add_onetime(fuel_gauge)
 
-            panel_y -= 25 * (len(params) + 3)  # Move down for next aircraft with more space
-            
+            # Add fuel label
+            # fuel_label = Label(f"Fuel: {airplane.fuel_remaining_pct:.1f}%", x_pos + 120, group_y + 10)
+            # self.viewer.add_onetime(fuel_label)
+
+            # Add horizontal separator line between aircraft
+            panel_y = group_y - 40
+            separator = rendering.Line((x_pos - 10, panel_y + 10), (x_pos + 280, panel_y + 10))
+            separator.set_color(200, 200, 200)  # Light gray
+            self.viewer.add_onetime(separator)
             
     def _render_approach(self):
         """
@@ -1291,7 +1356,7 @@ class AtcGym(gym.Env):
                     mva_type = model.MvaType.GENERIC
                 
                 # Get wind vector at starting point
-                start_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness,  self._wind_dirn)
+                start_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness, self._wind_dirn)
                 wind_speed = np.linalg.norm(start_vector)
                 
                 # Skip areas with negligible wind
@@ -1341,10 +1406,11 @@ class AtcGym(gym.Env):
                         except ValueError:
                             mva_type = model.MvaType.GENERIC
                         
-                        next_vector = model.get_wind_speed(int(current_x), int(current_y), 20_000, mva_type, self._wind_badness,  self._wind_dirn)
+                        next_vector = model.get_wind_speed(int(current_x), int(current_y), 20_000, 
+                                                          mva_type, self._wind_badness, self._wind_dirn)
                         next_wind_speed = np.linalg.norm(next_vector)
                         
-                        # Update unit vector (creates the curve effect)
+                        # Update unit_vector (creates the curve effect)
                         unit_vector = next_vector / next_wind_speed if next_wind_speed > 0 else np.array([0, 0])
                     else:
                         # Stop if we go out of bounds
@@ -1424,18 +1490,22 @@ class AtcGym(gym.Env):
     def _render_mvas(self):
         """
         Renders the outlines of the minimum vectoring altitudes onto the screen.
+        Renders largest MVAs first, then smaller ones on top for proper layering.
         """
         def transform_world_to_screen(coords):
             return [((coord[0] - self._world_x_min) * self._scale + self._padding,
                      (coord[1] - self._world_y_min) * self._scale + self._padding) for coord in coords]
+        
+        # Sort MVAs by area size (largest first)
+        sorted_mvas = sorted(self._mvas, key=lambda mva: mva.area.area, reverse=True)
 
-        for mva in self._mvas:
+        # Render the fill for each MVA in size order (largest to smallest)
+        for mva in sorted_mvas:
             coordinates = transform_world_to_screen(mva.area.exterior.coords)
 
             fill = rendering.FilledPolygon(coordinates)
-            # based on height, choose color from ColorScheme.mva_height_colormap which is a matplotlib linear colormap
-            norm_height_btn_0_1 = mva.height / MAX_MVA_HEIGHT_FOR_VISUALIZATION
-
+            
+            # Select color based on MVA type
             color = None
             match mva.mva_type:
                 case model.MvaType.GENERIC:
@@ -1447,25 +1517,41 @@ class AtcGym(gym.Env):
                 case model.MvaType.OCEANIC:
                     color = ColorScheme.oceanic_mva_color
             
-            # color = ColorScheme.mva_height_colormap(norm_height_btn_0_1)
-            # color = [int(x*255) for x in ColorScheme.mva_height_colormap(norm_height_btn_0_1)]
-
             fill.set_color_opacity(*color)
             self.viewer.add_geom(fill)
 
-        for mva in self._mvas:
+        # Render outlines in same order (largest to smallest)
+        for mva in sorted_mvas:
             coordinates = transform_world_to_screen(mva.area.exterior.coords)
             outline = rendering.PolyLine(coordinates, True)
             outline.set_color(*ColorScheme.mva)
             self.viewer.add_geom(outline)
 
-        for mva in self._mvas:
-            # add label on edge of the mva indicating its FL
+        # Render labels in same order (largest to smallest)
+        for mva in sorted_mvas:
+            # Add label on edge of the mva indicating its FL
             label_pos = transform_world_to_screen(mva.area.centroid.coords)[0]
-            label = Label(f"FL{(mva.height // 100):03}", label_pos[0], label_pos[1], bold=False)
-            label2 = Label(f"{mva.mva_type.value}", label_pos[0], label_pos[1] - 15, bold=False)
-            self.viewer.add_geom(label)
-            self.viewer.add_geom(label2)
+            
+            # Create the text content for both labels
+            fl_text = f"FL{(mva.height // 100):03}"
+            type_text = f"{mva.mva_type.value}"
+            
+            # Get approximate text widths (assuming monospace, around 7 pixels per character)
+            fl_text_width = len(fl_text) * 7
+            type_text_width = len(type_text) * 7
+            
+            # Position labels with horizontal centering adjustment
+            fl_label = Label(fl_text, 
+                          label_pos[0] - fl_text_width/2,  # Center horizontally
+                          label_pos[1], 
+                          bold=False)
+            type_label = Label(type_text, 
+                            label_pos[0] - type_text_width/2,  # Center horizontally
+                            label_pos[1] - 15, 
+                            bold=False)
+            
+            self.viewer.add_geom(fl_label)
+            self.viewer.add_geom(type_label)
 
     def _render_runway(self):
         """

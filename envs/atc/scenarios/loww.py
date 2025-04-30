@@ -167,7 +167,7 @@ class LOWW(Scenario):
                 (57.97, 41.89),
                 (53.5, 31.43),
                 (44.95, 28.91)
-            ]), 2600, MvaType.OCEANIC)]
+            ]), 1600, MvaType.OCEANIC)]
 
         self.runway = model.Runway(45.16, 43.26, 586, 160)
 

@@ -404,6 +404,10 @@ class Airplane:
         Returns:
             Boolean indicating if the aircraft still has fuel
         """
+        # Skip all updates if the plane has reached the FAF (landed)
+        if hasattr(self, 'reached_faf') and self.reached_faf:
+            return True  # Return True to indicate it has fuel (prevents fuel depletion warnings)
+            
         # Record the current position in history
         self.position_history.append((self.x, self.y))
         

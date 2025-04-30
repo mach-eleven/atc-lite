@@ -1,8 +1,9 @@
 import csv
+import platform
 from pathlib import Path
 import time
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3 import PPO
 
 import logging
@@ -55,12 +56,26 @@ def train_curriculum(args, reward_keys, scenario=None, num_airplanes=1):
             scenario=scenario_obj,
             render_mode="headless",
             wind_badness=args.wind_badness,
-            starting_fuel=args.starting_fuel
+            starting_fuel=args.starting_fuel if hasattr(args, 'starting_fuel') else None
         )
     
     logger.info(f"Training with {num_airplanes} airplanes in curriculum learning")
     logger.info(f"Using scenario: {args.scenario}")
     logger.info(f"="*80)
+
+    # Determine which vector environment to use based on OS
+    # Windows has issues with SubprocVecEnv, so use DummyVecEnv on Windows
+    if platform.system() == 'Windows':
+        vec_env_cls = DummyVecEnv
+        logger.info("Using DummyVecEnv for Windows compatibility")
+        # Adjust threads for Windows - DummyVecEnv doesn't benefit from many threads
+        actual_threads = min(4, args.threads)
+        if actual_threads < args.threads:
+            logger.info(f"Reducing threads from {args.threads} to {actual_threads} for Windows DummyVecEnv")
+    else:
+        vec_env_cls = SubprocVecEnv
+        actual_threads = args.threads
+        logger.info(f"Using SubprocVecEnv with {actual_threads} threads")
 
     # Generate curriculum entry points based on scenario
     if args.scenario == 'LOWW' and num_airplanes == 2:
@@ -78,19 +93,19 @@ def train_curriculum(args, reward_keys, scenario=None, num_airplanes=1):
 
         # Create environment with the current curriculum entry point
         env = my_env(entry_point)
-        vec_env = make_vec_env(my_env, n_envs=args.threads, env_kwargs={"curriculum_entry_point": entry_point}, vec_env_cls=SubprocVecEnv)
+        vec_env = make_vec_env(my_env, n_envs=actual_threads, env_kwargs={"curriculum_entry_point": entry_point}, vec_env_cls=vec_env_cls)
 
         # For LOWW with 2 planes, each entry_point is actually a list of two entry points
         if args.scenario == 'LOWW' and num_airplanes == 2:
             # Use first plane's coordinates for stage naming
             entry_xy = (entry_point[0].x, entry_point[0].y)
             entry_heading = entry_point[0].phi
-            stage_name = f"stage{stage+1}_entry{entry_xy[0]:.1f}_{entry_xy[1]:.1f}_hdg{entry_heading}"
+            stage_name = f"stage{stage+1}_entry{entry_xy[0]}_{entry_xy[1]}_hdg{entry_heading}"
         else:
             # For single plane scenarios, use the standard approach
             entry_xy = (entry_point.x, entry_point.y)
             entry_heading = entry_point.phi
-            stage_name = f"stage{stage+1}_entry{entry_xy[0]:.1f}_{entry_xy[1]:.1f}_hdg{entry_heading}"
+            stage_name = f"stage{stage+1}_entry{entry_xy[0]}_{entry_xy[1]}_hdg{entry_heading}"
         
         stage_dir = Path(args.outdir) / stage_name
         stage_dir.mkdir(parents=True, exist_ok=True)
@@ -133,7 +148,7 @@ def train_curriculum(args, reward_keys, scenario=None, num_airplanes=1):
                 n_steps=2048,
                 batch_size=4096,
             )
-        elif stage > 0 and (prev_model_path := stage_dir.parent / f"curr_model_stage{stage}_entry{entry_xy[0]:.1f}_{entry_xy[1]:.1f}_hdg{entry_heading}.zip").exists():
+        elif stage > 0 and (prev_model_path := stage_dir.parent / f"curr_model_stage{stage}_entry{entry_xy[0]}_{entry_xy[1]}_hdg{entry_heading}.zip").exists():
             model_ = PPO.load(
                 prev_model_path,
                 env=vec_env,

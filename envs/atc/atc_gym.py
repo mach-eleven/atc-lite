@@ -286,6 +286,11 @@ class AtcGym(gym.Env):
         # Apply each action component and accumulate rewards
         c = 0
         for airplane in self._airplanes:
+            # Skip completely if the plane has already reached the FAF
+            if hasattr(airplane, 'reached_faf') and airplane.reached_faf:
+                c += 1
+                continue
+                
             # Store previous position for corridor crossing check
             prev_x, prev_y, prev_h, prev_phi = airplane.x, airplane.y, airplane.h, airplane.phi
             action = action_array[c * 3: (c + 1) * 3] # for airplane 0: 0-2, for airplane 1: 3-5
@@ -314,7 +319,6 @@ class AtcGym(gym.Env):
             self.last_action[(c * 3) + 0] = updated_last_action[0]
             self.last_action[(c * 3) + 1] = updated_last_action[1]
             self.last_action[(c * 3) + 2] = updated_last_action[2]
-
 
             # Update the airplane position based on its current state
             # Pass airspace and wind_badness to the update_wind method
@@ -1267,8 +1271,7 @@ class AtcGym(gym.Env):
         for x in range(0, len(wind_field), flow_discretization):
             for y in range(0, len(wind_field[0]), flow_discretization):
                 try:
-                    mva = self._airspace.find_mva(x, y)
-                    mva_type = mva.mva_type
+                    mva_type = self._airspace.find_mva(x, y).mva_type
                 except ValueError:
                     mva_type = model.MvaType.GENERIC
                 
@@ -1354,6 +1357,10 @@ class AtcGym(gym.Env):
                     for point_x, point_y in flow_points:
                         point = self._screen_vector(point_x, point_y)
                         screen_points.append((point[0][0], point[1][0]))
+                    
+                    # Skip if no valid screen points
+                    if not screen_points:
+                        continue
                     
                     # Line width based on wind speed (1-3 pixels)
                     line_width = 1 + int(speed_ratio * 2)

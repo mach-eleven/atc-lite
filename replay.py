@@ -84,7 +84,7 @@ def validate_and_get_entry_point(entry, heading, level, curr_stage_entry_point, 
     # Special handling for LOWW or ModifiedLOWW with 1 airplane using the special curriculum system
     elif scenario_name in ["LOWW", "ModifiedLOWW"] and num_airplanes == 1:
         if entry is not None and heading is not None and level is not None:
-            entry_point = model.EntryPoint(entry[0], entry[1], heading, level)
+            entry_point = model.EntryPoint(entry[0], entry[1], heading, [level])
         elif entry is not None:
             raise ValueError("If entry is provided, heading and level must also be provided.")
         elif heading is not None or level is not None:

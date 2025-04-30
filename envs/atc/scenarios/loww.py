@@ -198,6 +198,52 @@ class LOWW(Scenario):
         minx, miny, maxx, maxy = self.airspace.get_bounding_box()
         self.wind = model.Wind((ceil(minx), ceil(maxx), ceil(miny), ceil(maxy)))
 
+    def generate_last_bound_entry_points(self, num_entrypoints=5):
+        """
+        Generate 5 entry points for randomised training in the environment. They are sampled from all points within the MVA region.
+        """
+
+        # sample num_entrypoints points from the region, not the bounding box
+
+        # Get the bounding box of the airspace
+        minx, miny, maxx, maxy = self.airspace.get_bounding_box()
+        # Get the MVA polygons
+        mva_polygons = [mva.area for mva in self.mvas]
+        # Create a list to store the entry points
+        entry_points = []
+
+        # potential_
+        # Generate random points within the bounding box
+        for _ in range(num_entrypoints):
+            # Generate a random point within the bounding box
+            x = random.uniform(minx, maxx)
+            y = random.uniform(miny, maxy)
+            # Check if the point is inside any of the MVA polygons
+            for polygon in mva_polygons:
+                if polygon.contains(shape.Point(x, y)):
+                    # If it is, create an entry point and add it to the list
+                    entry_points.append(model.EntryPoint(x, y, random.choice([50, 100, 80, 200, 180]), [290]))
+                    break
+        # If we don't have enough entry points, generate more
+        while len(entry_points) < num_entrypoints:
+            # Generate a random point within the bounding box
+            x = random.uniform(minx, maxx)
+            y = random.uniform(miny, maxy)
+            # Check if the point is inside any of the MVA polygons
+            for polygon in mva_polygons:
+                if polygon.contains(shape.Point(x, y)):
+                    # If it is, create an entry point and add it to the list
+                    entry_points.append(model.EntryPoint(x, y, random.choice([50, 100, 80, 200, 180]), [290]))
+                    break
+        
+        # If we still don't have enough entry points, just return what we have
+        if len(entry_points) < num_entrypoints:
+            logger.warning(f"Only generated {len(entry_points)} entry points, not enough for {num_entrypoints}")
+        # Return the entry points
+        return entry_points[:num_entrypoints]
+    
+
+
     def generate_aircraft(self, count, bounds):
         """Generate aircraft with safer initial positions"""
         import numpy as np
@@ -451,6 +497,7 @@ class LOWW(Scenario):
         
         # Define a reference point for distance calculation (using one of the default entry points)
         reference_entry = model.EntryPoint(54.0, 80.5, 50, [150])
+
         ref_x, ref_y = reference_entry.x, reference_entry.y
         
         # Calculate maximum distance from runway to reference point

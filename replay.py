@@ -84,7 +84,7 @@ def validate_and_get_entry_point(entry, heading, level, curr_stage_entry_point, 
     # Special handling for LOWW or ModifiedLOWW with 1 airplane using the special curriculum system
     elif scenario_name in ["LOWW", "ModifiedLOWW"] and num_airplanes == 1:
         if entry is not None and heading is not None and level is not None:
-            entry_point = model.EntryPoint(entry[0], entry[1], heading, level)
+            entry_point = model.EntryPoint(entry[0], entry[1], heading, [level])
         elif entry is not None:
             raise ValueError("If entry is provided, heading and level must also be provided.")
         elif heading is not None or level is not None:
@@ -266,6 +266,20 @@ def add_arguments(parser):
         default=10000,
         help="Amount of fuel (kg) the airplane starts with during replay",
     )
+    parser.add_argument(
+        "--wind-badness", 
+        type=int, 
+        choices=range(0, 11), 
+        default=5, 
+        help="How strong and turbulent the wind should be (0-10)"
+    )
+    parser.add_argument(
+        "--wind-dirn", 
+        type=int, 
+        choices=range(0, 360), 
+        default=270, 
+        help="Wind direction in degrees (0-360)"
+    )
 
 
 if __name__ == "__main__":
@@ -344,6 +358,8 @@ if __name__ == "__main__":
         scenario=scenario,
         render_mode=render_mode,  # Use the determined render mode
         starting_fuel=args.starting_fuel,
+        wind_badness=args.wind_badness,
+        wind_dirn=args.wind_dirn,
     )
     model_ = PPO.load(
         args.checkpoint,
@@ -372,6 +388,9 @@ if __name__ == "__main__":
                 ),
                 scenario=scenario,
                 render_mode=render_mode,
+                starting_fuel=args.starting_fuel,
+                wind_badness=args.wind_badness,
+                wind_dirn=args.wind_dirn,
             )
             model_.set_env(env)
 

@@ -32,7 +32,8 @@ def train_sb3_ppo(args, reward_keys, scenario=None, num_airplanes=1):
             scenario=scenario if scenario else scenarios.SupaSupa(),
             render_mode="headless",
             wind_badness=args.wind_badness,
-            starting_fuel=args.starting_fuel if hasattr(args, 'starting_fuel') else None
+            wind_dirn=args.wind_dirn if hasattr(args, 'wind_dirn') else 270,  # Default to 270 if not specified
+            starting_fuel=args.starting_fuel
         )
     
     # Determine which vector environment to use based on OS
@@ -52,6 +53,7 @@ def train_sb3_ppo(args, reward_keys, scenario=None, num_airplanes=1):
     env = my_env()
     vec_env = make_vec_env(my_env, n_envs=actual_threads, vec_env_cls=vec_env_cls)
     logger.info(f"Training with {num_airplanes} airplanes in scenario: {scenario.__class__.__name__ if scenario else 'SupaSupa'}")
+    logger.info(f"Wind settings - Badness: {args.wind_badness}, Direction: {args.wind_dirn if hasattr(args, 'wind_dirn') else 270}")
     logger.info(f"="*80)
 
     # Load from checkpoint if provided, else create new model

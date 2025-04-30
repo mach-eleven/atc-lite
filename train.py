@@ -49,6 +49,8 @@ def add_arguments(parser):
     parser.add_argument('--random-entry', action='store_true', help='Use random entry points for airplanes', default=False)
     parser.add_argument('--starting-fuel', type=gt_0, default=10000, help='Amount of fuel (kg) the airplane starts with during training')
     parser.add_argument('--reduced-time-penalty', action='store_true', help='Use reduced time penalty for training', default=False)
+    parser.add_argument('--wind-dirn', type=int, choices=range(0, 360), default=270, help='Wind direction in degrees (0-360)')
+    parser.add_argument('--generic-training', action='store_true', help='Use simplified training with 5 fixed entry points', default=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -89,21 +91,28 @@ if __name__ == "__main__":
     else:
         scenario = scenario_class()
 
-    match args.model:
-        case 'curr':
-            from train_src.functions import train_curriculum
-            train_curriculum(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
-        case 'gen':
-            from train_src.functions import train_generalized_model
-            train_generalized_model(args, reward_keys)
-        case 'ppo_sb3':
-            from train_src.functions import train_sb3_ppo
-            train_sb3_ppo(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
-        case 'ppo':
-            from train_src.functions import train_ppo
-            train_ppo(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
-        case 'dqn':
-            from train_src.functions import train_dqn
-            train_dqn(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
-        case _:
-            raise ValueError(f"Unknown model type: {args.model}")
+    # If generic-training flag is set, use the simplified training function
+    if args.generic_training:
+        from train_src.functions import train_generic_simple
+        logger.info("Using simplified generic training with 5 fixed entry points")
+        train_generic_simple(args, reward_keys)
+    else:
+        # Otherwise, use the specified training algorithm
+        match args.model:
+            case 'curr':
+                from train_src.functions import train_curriculum
+                train_curriculum(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
+            case 'gen':
+                from train_src.functions import train_generalized_model
+                train_generalized_model(args, reward_keys)
+            case 'ppo_sb3':
+                from train_src.functions import train_sb3_ppo
+                train_sb3_ppo(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
+            case 'ppo':
+                from train_src.functions import train_ppo
+                train_ppo(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
+            case 'dqn':
+                from train_src.functions import train_dqn
+                train_dqn(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
+            case _:
+                raise ValueError(f"Unknown model type: {args.model}")

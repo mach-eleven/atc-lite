@@ -27,7 +27,7 @@ class MvaType(Enum):
 
 
 # Function to get wind speed at a given location and altitude
-def get_wind_speed(x, y, h, mva_type=None, badness=5):
+def get_wind_speed(x, y, h, mva_type=None, badness=5, wind_dirn=270):
     """
     Get wind speed at a given location and altitude based on terrain type.
     
@@ -55,8 +55,9 @@ def get_wind_speed(x, y, h, mva_type=None, badness=5):
     y_variation = math.cos(y * 0.1) * 2 * badness_factor
     
     wind_speed = base_wind_speed * altitude_factor + x_variation 
-    wind_direction = 270  + y_variation # Default wind from west
+    wind_direction = wind_dirn + y_variation # Default wind from west
     
+    # print(wind_dirn, wind_direction)
     # Apply terrain-specific wind adjustments based on MVA type
     if mva_type:
         if mva_type == MvaType.MOUNTAINOUS:
@@ -107,7 +108,7 @@ def get_wind_speed(x, y, h, mva_type=None, badness=5):
     return (wind_x, wind_y)
 
 class Airplane:
-    def __init__(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
+    def __init__(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300, starting_fuel=None):
         """
         Represents an aircraft in the simulation with its physical properties and constraints.
         
@@ -121,7 +122,8 @@ class Airplane:
         :param v_min: Minimum allowed speed in knots
         :param v_max: Maximum allowed speed in knots
         :param h_min: Minimum allowed altitude in feet
-        :param h_max: Maximum allowed altitude in feet        
+        :param h_max: Maximum allowed altitude in feet
+        :param starting_fuel: Initial fuel amount in kg (defaults to 10000 if None)
         """
         self.sim_parameters = sim_parameters
         self.name = name
@@ -159,7 +161,7 @@ class Airplane:
         
         # NEW: Add fuel and mass properties
         self.empty_mass = 40000  # kg (aircraft without fuel)
-        self.fuel_mass = 10000   # kg (initial fuel)
+        self.fuel_mass = starting_fuel if starting_fuel is not None else 10000  # kg (initial fuel)
         self.max_fuel = 10000    # kg (fuel capacity)
         
         # Fuel consumption rates (kg/s)
@@ -275,7 +277,7 @@ class Airplane:
         # Apply the constrained heading change, keeping within 0-360 range
         self.phi = (self.phi + delta_phi) % 360
 
-    def update_wind(self, airspace=None, wind_badness=5):
+    def update_wind(self, airspace=None, wind_badness=5, wind_dirn=270):
         """
         Update wind components based on current position and terrain type.
         
@@ -296,7 +298,7 @@ class Airplane:
                 mva_type = MvaType.GENERIC
         
         # Call the enhanced wind function with MVA type and badness
-        wind_vector = get_wind_speed(self.x, self.y, self.h, mva_type, wind_badness)
+        wind_vector = get_wind_speed(self.x, self.y, self.h, mva_type, wind_badness, wind_dirn)
         self.wind_x = wind_vector[0]
         self.wind_y = wind_vector[1]
         
@@ -392,7 +394,7 @@ class Airplane:
         # Return fuel status
         return self.fuel_mass > 0
 
-    def step(self, airspace=None, wind_badness=5):
+    def step(self, airspace=None, wind_badness=5, wind_dirn=270):
         """Updates the aircraft's position based on wind-affected ground speed and track.
         
         Args:
@@ -406,7 +408,7 @@ class Airplane:
         self.position_history.append((self.x, self.y))
         
         # Update wind at current position with terrain information
-        self.update_wind(airspace, wind_badness)
+        self.update_wind(airspace, wind_badness, wind_dirn)
         
         # Apply heading correction to better align with track (simulates autopilot)
         self._autopilot_heading_correction()

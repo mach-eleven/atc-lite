@@ -1,0 +1,1 @@
+python3 train.py --model gen --num-airplanes 1 --outdir new_logs/gen_beta --max-episodes 1000 --max-steps-per-episode 80000 --save-freq 20 --eval-freq 2 --eval-episodes 5 --threads 10 --curr-window-size 60 --curr-success-threshold 0.92 --curr-stages 30

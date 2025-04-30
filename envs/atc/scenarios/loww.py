@@ -425,3 +425,249 @@ class LOWW(Scenario):
                 
         # Return curriculum points as pairs of entry points
         return curriculum_entries
+
+    def generate_curriculum_entrypoint_but_many(self, num_entrypoints: int, n_per_circle: int = 5) -> list[list[model.EntryPoint]]:
+        """
+        Lets say we have a circle of entry points around the runway.
+        Based on num_entrypoints, we will generate N circles. The circles are distributed 
+        between runway_threshold_coords and the entry point.
+        The entry points are distributed evenly on the circle, and there are n_per_circle entry points per circle.
+
+        The entry points are generated in a way that they are not too close to each other.
+        
+        If n_per_circle is 5, we will have 5 entry points on the circle. But actually, each entry_point will have 2 versions, with 2 different headings.
+        So we will have 10 entry points on the circle.
+
+        This function is only made for 1 airplane scenario, so it needs to return only a set of entry points for a singular plane.
+
+        So, it returns a list of lists. Each list inside the list is a set of entry points for a single airplane on a circle. This is so that any point 
+        can then be randomly selected from the list of entry points.
+        """
+        # Get runway coordinates
+        runway_threshold_coords = self.runway.x, self.runway.y
+        
+        # Calculate approach direction (opposite of runway heading)
+        approach_direction = (self.runway.phi_from_runway + 180) % 360
+        
+        # Define a reference point for distance calculation (using one of the default entry points)
+        reference_entry = model.EntryPoint(54.0, 80.5, 50, [150])
+        ref_x, ref_y = reference_entry.x, reference_entry.y
+        
+        # Calculate maximum distance from runway to reference point
+        dx_max = ref_x - runway_threshold_coords[0]
+        dy_max = ref_y - runway_threshold_coords[1]
+        max_distance = math.sqrt(dx_max**2 + dy_max**2)
+        
+        # Default flight level if we can't determine MVA
+        default_altitude = 15000  # feet - corresponds to FL150
+        default_flight_level = 150  # Flight level 150 = 15,000 feet
+        
+        # Create circles with increasing radii from runway
+        circles = []
+        for i in range(num_entrypoints):
+            # Calculate radius for this circle (increasing from runway)
+            # Start with a small radius and increase gradually
+            radius_ratio = (i + 1) / num_entrypoints
+            circle_radius = max_distance * radius_ratio
+            
+            # Generate entry points around this circle
+            circle_entries = []
+            for j in range(n_per_circle):
+                # Calculate angle for this point (evenly distributed around circle)
+                angle_degrees = j * (360 / n_per_circle)
+                angle_radians = math.radians(angle_degrees)
+                
+                # Calculate position on circle
+                x = runway_threshold_coords[0] + circle_radius * math.cos(angle_radians)
+                y = runway_threshold_coords[1] + circle_radius * math.sin(angle_radians)
+                
+                # Calculate heading toward runway
+                dx_to_runway = runway_threshold_coords[0] - x
+                dy_to_runway = runway_threshold_coords[1] - y
+                heading_to_runway = (math.degrees(math.atan2(dy_to_runway, dx_to_runway)) + 90) % 360
+                
+                # Get MVA at this position to ensure we start at a safe altitude
+                try:
+                    # Find the minimum vectoring altitude at this position
+                    mva_height = self.airspace.get_mva_height(x, y)
+                    # Add a safety margin (e.g., 500 feet above MVA)
+                    safe_altitude = mva_height + 50
+                    # Calculate flight level (divide by 100)
+                    safe_flight_level = math.ceil(safe_altitude / 100) * 10
+                except ValueError:
+                    # If point is outside defined airspace, use default altitude
+                    logger.warning(f"Entry point ({x}, {y}) is outside airspace, using default altitude")
+                    safe_flight_level = default_flight_level
+                
+                if safe_flight_level > 380:
+                    safe_flight_level = 350
+                # Create entry point with heading toward runway and safe altitude
+                runway_heading_entry = model.EntryPoint(x, y, heading_to_runway, [safe_flight_level])
+                
+                # Create second version with a slightly offset heading (e.g., +30 degrees)
+                offset_angle = 30
+                offset_heading = (heading_to_runway + offset_angle) % 360
+                offset_heading_entry = model.EntryPoint(x, y, offset_heading, [safe_flight_level])
+                
+                # Add both entry points to the circle
+                circle_entries.append(runway_heading_entry)
+                circle_entries.append(offset_heading_entry)
+            
+            circles.append(circle_entries)
+        # logger.info([x.levels for x in [entry for circle in circles for entry in circle]])
+        return circles
+
+class ModifiedLOWW(LOWW):
+    def __init__(self, random_entrypoints=False, entry_point=None):
+        super().__init__(random_entrypoints=random_entrypoints, entry_point=entry_point)
+        # Modify the MVAs for the
+        self.mvas = [
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (48.43, 2.09),
+                (39.36, 4.22),
+                (27.26, 20.01),
+                (54.03, 12.95),
+                (48.43, 2.09)
+            ]), 14800, MvaType.WEATHER),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (27.26, 20.01),
+                (26.37, 21.35),
+                (29.73, 26.39),
+                (28.83, 31.09),
+                (34.32, 25.55),
+                (46.08, 22.36),
+                (42.47, 16),
+                (27.26, 20.01)
+            ]), 9700, MvaType.OCEANIC),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (26.37, 21.35),
+                (13.15, 38.60),
+                (22.0, 36.13),
+                (22.0, 30.65),
+                (29.73, 26.39),
+                (26.37, 21.35)
+            ]), 15700, MvaType.MOUNTAINOUS),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (29.73, 26.39),
+                (22.0, 30.65),
+                (22.0, 36.13),
+                (13.15, 38.60),
+                (8, 45.68),
+                (18.75, 44.98),
+                (28.83, 31.09),
+                (29.73, 26.39)
+            ]), 32600, MvaType.WEATHER),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (28.83, 31.09),
+                (18.75, 44.98),
+                (22.0, 45.68),
+                (26.37, 43.08),
+                (28.83, 31.09)
+            ]), 4100, MvaType.WEATHER),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (28.83, 31.09),
+                (28.83, 33.45),
+                (31.29, 34.12),
+                (29.73, 41.29),
+                (26.9, 40.47),
+                (28.83, 31.09)
+            ]), 3000, MvaType.GENERIC),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (22.0, 45.68),
+                (18.75, 44.98),
+                (8, 45.68),
+                (4.08, 50.25),
+                (15.73, 76.12),
+                (29.73, 80.71),
+                (56.16, 82.05),
+                (58.51, 69.84),
+                (42.94, 71.97),
+                (22.56, 65.36),
+                (16.17, 50.25),
+                (23.23, 49.01),
+                (22.0, 45.68)
+            ]), 23500, MvaType.GENERIC),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (46.08, 22.36),
+                (34.32, 25.55),
+                (31.5, 28.4),
+                (36.22, 35.46),
+                (44.46, 31.76),
+                (46.08, 22.36)
+            ]), 3800, MvaType.GENERIC),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (31.5, 28.4),
+                (28.83, 31.09),
+                (28.83, 33.45),
+                (31.29, 34.12),
+                (29.73, 41.29),
+                (26.9, 40.47),
+                (26.37, 43.08),
+                (22.0, 45.68),
+                (23.23, 49.01),
+                (31.29, 48.01),
+                (30.17, 45.71),
+                (32.19, 44.98),
+                (35.14, 41.62),
+                (36.22, 42.29),
+                (37.56, 36.69),
+                (36.22, 35.46),
+                (31.5, 28.4)
+            ]), 3500, MvaType.OCEANIC),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (35.14, 41.62),
+                (32.19, 44.98),
+                (30.17, 45.71),
+                (31.29, 48.01),
+                (23.23, 49.01),
+                (16.17, 50.25),
+                (22.56, 65.36),
+                (36.58, 69.91),
+                (39.47, 60.55),
+                (35.73, 59.13),
+                (36.22, 56.18),
+                (38.46, 53.72),
+                (34.32, 45.68),
+                (35.14, 41.62)
+            ]), 18000, MvaType.MOUNTAINOUS),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (46.08, 22.36),
+                (44.95, 28.91),
+                (53.5, 31.43),
+                (57.97, 41.89),
+                (47.17, 55.97),
+                (40.75, 53.72),
+                (38.46, 53.72),
+                (36.22, 56.18),
+                (35.73, 59.13),
+                (39.47, 60.55),
+                (36.58, 69.91),
+                (42.94, 71.97),
+                (58.51, 69.84),
+                (54.78, 60.01),
+                (68.15, 38.6),
+                (66.34, 36.85),
+                (65.53, 30.62),
+                (62.92, 29.97),
+                (66.58, 20.58),
+                (52.88, 18.68),
+                (51.64, 21.35),
+                (46.08, 22.36)
+            ]), 20000, MvaType.MOUNTAINOUS),
+            model.MinimumVectoringAltitude(shape.Polygon([
+                (44.95, 28.91),
+                (44.46, 31.76),
+                (36.22, 35.46),
+                (37.56, 36.69),
+                (36.22, 42.29),
+                (35.14, 41.62),
+                (34.32, 45.68),
+                (38.46, 53.72),
+                (40.75, 53.72),
+                (47.17, 55.97),
+                (57.97, 41.89),
+                (53.5, 31.43),
+                (44.95, 28.91)
+            ]), 2500, MvaType.GENERIC)]
+
+        self.airspace = model.Airspace(self.mvas, self.runway)

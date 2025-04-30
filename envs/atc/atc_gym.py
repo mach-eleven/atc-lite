@@ -55,7 +55,7 @@ class AtcGym(gym.Env):
         "render_fps": 50
     }
 
-    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5):
+    def __init__(self, airplane_count=1, sim_parameters=model.SimParameters(1), scenario=None, render_mode='rgb_array', wind_badness=5, wind_dirn=270, starting_fuel=10000, reduced_time_penalty=False):
         """
         Initialize the ATC gym environment
         
@@ -65,11 +65,18 @@ class AtcGym(gym.Env):
             scenario: The airspace scenario to use (runways, MVAs, etc.)
             render_mode: 'human' for window rendering, 'rgb_array' for array output, 'headless' for no rendering
             wind_badness: How strong and turbulent the wind should be (0-10)
+            wind_dirn: Wind direction in degrees
+            starting_fuel: Amount of fuel in kg that aircraft start with
         """
 
         self._airplane_count = airplane_count
         self._wind_badness = wind_badness  # Store the wind badness parameter
+        self._wind_dirn = wind_dirn
+        self._starting_fuel = starting_fuel  # Store the starting fuel amount
+        # print(f"Wind badness: {self._wind_badness} | Wind direction: {self._wind_dirn}")
 
+        self.reduced_time_penalty = reduced_time_penalty
+        # logger.info(f"Reduced time penalty: {self.reduced_time_penalty}")
         self.render_mode = render_mode
         
         # Use a default scenario if none provided
@@ -193,7 +200,7 @@ class AtcGym(gym.Env):
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(len(self.normalization_state_min),))
         self.reward_range = (-3000.0, 23000.0)  # Define the min/max possible rewards
 
-        logger.info(f"Gymnasium ATC Environment initialized: Airplanes: {len(self._airplanes)}, obs: {len(self.normalization_state_min)}, act: {len(self.normalization_action_offset)}")
+        # logger.info(f"Gymnasium ATC Environment initialized: Airplanes: {len(self._airplanes)}, obs: {len(self.normalization_state_min)}, act: {len(self.normalization_action_offset)}")
         
         # Initialize trajectory visualization settings
         self.show_trajectories = True  # Default: trajectories enabled
@@ -252,7 +259,10 @@ class AtcGym(gym.Env):
         self.timesteps += 1
         self.done = False
         # Small negative reward per timestep to encourage efficiency
-        time_penalty = -0.5 * self._sim_parameters.timestep  # Scaled up for normalization
+        if self.reduced_time_penalty:
+            time_penalty = -0.05 * self._sim_parameters.timestep
+        else:
+            time_penalty = -0.5 * self._sim_parameters.timestep  # Scaled up for normalization
         reward = time_penalty
         
         # Dictionary to track reward components for logging
@@ -308,7 +318,7 @@ class AtcGym(gym.Env):
 
             # Update the airplane position based on its current state
             # Pass airspace and wind_badness to the update_wind method
-            has_fuel = airplane.step(self._airspace, self._wind_badness)
+            has_fuel = airplane.step(self._airspace, self._wind_badness, self._wind_dirn)
             
             # Check if airplane is out of fuel
             if not has_fuel:
@@ -1235,76 +1245,24 @@ class AtcGym(gym.Env):
             )
             dash.set_color(*ColorScheme.lines_info)
             self.viewer.add_geom(dash)
-
-    # def _render_wind(self):
-    #     """
-    #     Render the wind direction arrow on the screen
-    #     """
-    #     # airspace 
-    #     # self._wind is a Wind object
-    #     self._wind = self._scenario.wind
-    #     wind_field = self._wind.wind_field
-    #     # at each point in airspace, draw a line in the direction of the wind based on self._wind.resolution, we can discretize
-    #     discretization = int(self._wind.resolution)
-    #     for x in range(0, len(wind_field), discretization):
-    #         for y in range(0, len(wind_field[0]), discretization):
-
-    #             # get current MVA
-    #             try:
-    #                 # Find which MVA we're in and get its type
-    #                 mva = self._airspace.find_mva(x, y)
-    #                 mva_type = mva.mva_type
-    #             except ValueError:
-    #                 # Outside airspace, use generic wind
-    #                 mva_type = model.MvaType.GENERIC
             
-    #             # Get the wind vector at this point
-    #             wind_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness)
-
-    #             # wind_vector = wind_field[x][y]
-    #             wind_speed = np.linalg.norm(wind_vector)
-    #             if wind_speed > 0:
-    #                 wind_vector /= wind_speed
-    #                 wind_vector *= 0.5 * self._scale
-    #                 vector = self._screen_vector(x, y)
-    #                 arrow = rendering.Line(
-    #                     (vector[0][0], vector[1][0]),
-    #                     (vector[0][0] + wind_vector[0], vector[1][0] + wind_vector[1])
-    #                 )
-    #                 arrow.set_color_opacity(*ColorScheme.wind)
-    #                 self.viewer.add_geom(arrow)
-                    
-    #                 # arrow base
-    #                 size = 2
-    #                 sqr = rendering.FilledPolygon([
-    #                     (arrow.start[0] - size, arrow.start[1] - size),
-    #                     (arrow.start[0] + size, arrow.start[1] - size),
-    #                     (arrow.start[0] + size, arrow.start[1] + size),
-    #                     (arrow.start[0] - size, arrow.start[1] + size)
-    #                 ])
-    #                 sqr.set_color_opacity(*ColorScheme.wind_arrow_base)
-
-    #                 self.viewer.add_geom(sqr)
-
-
     def _render_wind(self):
         """
-        Render the wind as flow lines with color indicating wind speed
+        Render the wind as flow streamlines with color indicating wind speed
         """
         # Get wind field from scenario
         self._wind = self._scenario.wind
         wind_field = self._wind.wind_field
         
-        # Larger discretization for flow lines to avoid cluttering
-        flow_discretization = int(self._wind.resolution * 3)
+        # Parameters for flow lines - density reduced for better visualization
+        flow_discretization = int(self._wind.resolution * 4)  # Increase spacing between flow lines
         
-        # Parameters for flow lines
-        flow_length = 3.0  # Length of each flow line
-        num_segments = 8   # Number of segments in each flow line
+        # Parameters for streamlines
+        flow_length = 12.0        # Length of each flow line - longer for more visible flows
+        num_segments = 24         # Number of segments in each flow line - more segments for smoother curves
         segment_length = flow_length / num_segments
         
-        # Define color gradient for wind speeds (blue to red)
-        # Find max wind speed for normalization
+        # Calculate max wind speed for color normalization
         max_wind_speed = 0.1  # Minimum to avoid division by zero
         for x in range(0, len(wind_field), flow_discretization):
             for y in range(0, len(wind_field[0]), flow_discretization):
@@ -1313,12 +1271,12 @@ class AtcGym(gym.Env):
                     mva_type = mva.mva_type
                 except ValueError:
                     mva_type = model.MvaType.GENERIC
-                    
-                wind_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness)
+                
+                wind_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness, self._wind_dirn)
                 wind_speed = np.linalg.norm(wind_vector)
                 max_wind_speed = max(max_wind_speed, wind_speed)
         
-        # Create flow lines
+        # Create streamlines
         for x in range(0, len(wind_field), flow_discretization):
             for y in range(0, len(wind_field[0]), flow_discretization):
                 try:
@@ -1328,28 +1286,38 @@ class AtcGym(gym.Env):
                 except ValueError:
                     # Outside airspace, use generic wind
                     mva_type = model.MvaType.GENERIC
-            
+                
                 # Get wind vector at starting point
-                start_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness)
+                start_vector = model.get_wind_speed(x, y, 20_000, mva_type, self._wind_badness,  self._wind_dirn)
                 wind_speed = np.linalg.norm(start_vector)
                 
                 # Skip areas with negligible wind
-                if wind_speed < 0.5:
+                if wind_speed < 0.7:  # Slightly higher threshold for cleaner visualization
                     continue
-                    
+                
                 # Normalize wind vector
                 unit_vector = start_vector / wind_speed if wind_speed > 0 else np.array([0, 0])
                 
                 # Calculate wind speed ratio for color interpolation
                 speed_ratio = min(wind_speed / max_wind_speed, 1.0)
                 
-                # Start position for flow line
+                # Select color based on wind speed - matching the reference image
+                if speed_ratio < 0.25:
+                    r, g, b = 255, 255, 255  # White for slowest winds
+                elif speed_ratio < 0.45:
+                    r, g, b = 180, 225, 250  # Light blue for light winds
+                elif speed_ratio < 0.7:
+                    r, g, b = 60, 170, 230   # Medium blue for moderate winds
+                else:
+                    r, g, b = 20, 80, 180    # Dark blue for strong winds
+                
+                # Start position for streamline
                 current_x, current_y = x, y
                 
-                # Generate flow line points
+                # Generate streamline points by following the wind field
                 flow_points = [(current_x, current_y)]
                 
-                # Create curved flow line by following wind vectors
+                # Create curved streamline by following wind vectors
                 for i in range(num_segments):
                     # Get the next position by following the wind
                     next_x = current_x + unit_vector[0] * segment_length
@@ -1363,15 +1331,14 @@ class AtcGym(gym.Env):
                         # Update current position
                         current_x, current_y = next_x, next_y
                         
-                        # Get new wind vector at this position
+                        # Get new wind vector at this position for smooth curve
                         try:
                             mva = self._airspace.find_mva(int(current_x), int(current_y))
                             mva_type = mva.mva_type
                         except ValueError:
                             mva_type = model.MvaType.GENERIC
                         
-                        next_vector = model.get_wind_speed(int(current_x), int(current_y), 
-                                                           20_000, mva_type, self._wind_badness)
+                        next_vector = model.get_wind_speed(int(current_x), int(current_y), 20_000, mva_type, self._wind_badness,  self._wind_dirn)
                         next_wind_speed = np.linalg.norm(next_vector)
                         
                         # Update unit vector (creates the curve effect)
@@ -1381,62 +1348,46 @@ class AtcGym(gym.Env):
                         break
                 
                 # Draw the flow line if we have enough points
-                if len(flow_points) > 1:
+                if len(flow_points) > 3:  # Need at least a few points for a meaningful line
                     # Convert world coordinates to screen coordinates
                     screen_points = []
                     for point_x, point_y in flow_points:
                         point = self._screen_vector(point_x, point_y)
                         screen_points.append((point[0][0], point[1][0]))
                     
-                    # Determine color based on wind speed
-                    # Blue for slow winds, cyan for medium, and white for fast winds
-                    if speed_ratio < 0.33:
-                        r, g, b = 0, 100, 255  # Blue
-                    elif speed_ratio < 0.66:
-                        r, g, b = 0, 200, 255  # Cyan
-                    else:
-                        r, g, b = 255, 255, 255  # White
-                    
                     # Line width based on wind speed (1-3 pixels)
                     line_width = 1 + int(speed_ratio * 2)
                     
-                    # Draw the flow line
+                    # Draw the streamline
                     flow_line = rendering.PolyLine(screen_points, False, linewidth=line_width)
-                    flow_line.set_color_opacity(r, g, b, 150)
+                    flow_line.set_color_opacity(r, g, b, 200)
                     self.viewer.add_geom(flow_line)
                     
-                    # Add arrowheads at intervals along the flow line
-                    if len(flow_points) > 3:
-                        # Add arrow at middle point
-                        mid_index = len(flow_points) // 2
+                    # Add arrow at the end of the streamline
+                    if len(screen_points) > 3:
+                        # Use second-to-last and last points for direction
+                        last_idx = len(screen_points) - 1
+                        prev_idx = last_idx - 1
                         
-                        if mid_index > 0 and mid_index < len(flow_points) - 1:
-                            # Get direction from surrounding points
-                            prev_pt = screen_points[mid_index - 1]
-                            mid_pt = screen_points[mid_index]
-                            next_pt = screen_points[mid_index + 1]
-                            
-                            # Calculate angle based on surrounding points
-                            dx = next_pt[0] - prev_pt[0]
-                            dy = next_pt[1] - prev_pt[1]
-                            angle = math.atan2(dy, dx)
-                            
-                            # Arrow size based on wind speed
-                            arrowhead_size = 4 + int(speed_ratio * 4)
-                            
-                            # Create arrowhead
-                            arrowhead = rendering.FilledPolygon([
-                                (mid_pt[0], mid_pt[1]),
-                                (mid_pt[0] - arrowhead_size * math.cos(angle - math.pi/6), 
-                                 mid_pt[1] - arrowhead_size * math.sin(angle - math.pi/6)),
-                                (mid_pt[0] - arrowhead_size * math.cos(angle + math.pi/6), 
-                                 mid_pt[1] - arrowhead_size * math.sin(angle + math.pi/6))
-                            ])
-                            arrowhead.set_color_opacity(r, g, b, 200)
-                            self.viewer.add_geom(arrowhead)
-                    
-                
-
+                        # Get arrow direction from the last segment
+                        dx = screen_points[last_idx][0] - screen_points[prev_idx][0]
+                        dy = screen_points[last_idx][1] - screen_points[prev_idx][1]
+                        angle = math.atan2(dy, dx)
+                        
+                        # Arrow size based on wind speed
+                        arrow_size = 5 + int(speed_ratio * 5)
+                        arrow_pt = screen_points[last_idx]
+                        
+                        # Create arrowhead
+                        arrowhead = rendering.FilledPolygon([
+                            arrow_pt,
+                            (arrow_pt[0] - arrow_size * math.cos(angle - math.pi/6), 
+                             arrow_pt[1] - arrow_size * math.sin(angle - math.pi/6)),
+                            (arrow_pt[0] - arrow_size * math.cos(angle + math.pi/6), 
+                             arrow_pt[1] - arrow_size * math.sin(angle + math.pi/6))
+                        ])
+                        arrowhead.set_color_opacity(r, g, b, 230)
+                        self.viewer.add_geom(arrowhead)
 
     def _render_faf(self):
         """
@@ -1511,7 +1462,7 @@ class AtcGym(gym.Env):
 
     def _render_runway(self):
         """
-        Renders the runway symbol onto the screen
+        Renders the runway symbol onto the screen with approach corridor
         """
         runway_length = 1.7 * self._scale
         runway_to_threshold_vector = \
@@ -1526,6 +1477,39 @@ class AtcGym(gym.Env):
         runway_line = rendering.Line(start_point, end_point, attrs={"linewidth": 10})
         runway_line.set_color(*ColorScheme.runway)
         self.viewer.add_geom(runway_line)
+
+        # Render the approach corridor shape
+        corridor = self._runway.corridor
+        if hasattr(corridor, 'corridor_horizontal') and corridor.corridor_horizontal is not None:
+            # Get the coordinates of the horizontal corridor polygon
+            coords = corridor.corridor_horizontal.exterior.coords
+            
+            # Transform world coordinates to screen coordinates
+            screen_coords = []
+            for coord in coords:
+                point = self._screen_vector(coord[0], coord[1])
+                screen_coords.append((point[0][0], point[1][0]))
+            
+            # Create filled polygon with transparent fill
+            corridor_fill = rendering.FilledPolygon(screen_coords)
+            corridor_fill.set_color_opacity(0, 150, 0, 50)  # Light green with transparency
+            self.viewer.add_geom(corridor_fill)
+            
+            # Add outline
+            corridor_outline = rendering.PolyLine(screen_coords, True, linewidth=2)
+            corridor_outline.set_color(0, 200, 0)  # Green outline
+            self.viewer.add_geom(corridor_outline)
+            
+            # Add a label indicating this is the approach corridor
+            # Find a good position for the label (center of the polygon)
+            if len(screen_coords) > 0:
+                x_coords = [p[0] for p in screen_coords]
+                y_coords = [p[1] for p in screen_coords]
+                label_x = sum(x_coords) / len(x_coords)
+                label_y = sum(y_coords) / len(y_coords)
+                
+                # corridor_label = Label("APPROACH CORRIDOR", label_x, label_y, bold=True)
+                # self.viewer.add_geom(corridor_label)
 
     def _screen_vector(self, x, y):
         """
@@ -1571,7 +1555,7 @@ class AtcGym(gym.Env):
             center_x = (self._world_x_min + self._world_x_max) / 2
             center_y = (self._world_y_min + self._world_y_max) / 2
             
-            self._airplanes = []
+            self._airplanes: list[model.Airplane] = []
             self._d_fafs = []
             self._phi_rel_fafs = []
             self._phi_rel_runways = []
@@ -1619,7 +1603,8 @@ class AtcGym(gym.Env):
                         x, y,                                       # Position
                         altitude,                                    # Altitude
                         phi,                            # Heading
-                        250                                         # Initial speed
+                        250,                                         # Initial speed
+                        starting_fuel=self._starting_fuel            # Starting fuel
                     )
                 )
                 

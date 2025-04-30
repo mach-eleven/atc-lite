@@ -27,7 +27,7 @@ def add_arguments(parser):
     """
     Add command line arguments for training.
     """
-    parser.add_argument('--model', type=str, default='ppo_sb3', choices=['curr', 'ppo_sb3', 'ppo', 'dqn'], help='RL algorithm to use')
+    parser.add_argument('--model', type=str, default='ppo_sb3', choices=['curr', 'ppo_sb3', 'ppo', 'dqn', 'gen'], help='RL algorithm to use')
     parser.add_argument('--num-airplanes', type=gt_0, default=1, help='Number of airplanes to train with')
     parser.add_argument('--scenario', type=str, default='SupaSupa', help='Scenario to use for training')
     parser.add_argument('--checkpoint', type=checkpoint_type, default=None, help='Path to SB3 PPO checkpoint to resume training from.')
@@ -47,6 +47,8 @@ def add_arguments(parser):
     parser.add_argument('--curr-stages', type=gt_0, default=100, help='Number of stages for curriculum training')
     parser.add_argument('--wind-badness', type=int, choices=range(0, 11), default=5, help='How strong and turbulent the wind should be (0-10)')
     parser.add_argument('--random-entry', action='store_true', help='Use random entry points for airplanes', default=False)
+    parser.add_argument('--starting-fuel', type=gt_0, default=10000, help='Amount of fuel (kg) the airplane starts with during training')
+    parser.add_argument('--reduced-time-penalty', action='store_true', help='Use reduced time penalty for training', default=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -91,6 +93,9 @@ if __name__ == "__main__":
         case 'curr':
             from train_src.functions import train_curriculum
             train_curriculum(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)
+        case 'gen':
+            from train_src.functions import train_generalized_model
+            train_generalized_model(args, reward_keys)
         case 'ppo_sb3':
             from train_src.functions import train_sb3_ppo
             train_sb3_ppo(args, reward_keys, scenario=scenario, num_airplanes=args.num_airplanes)

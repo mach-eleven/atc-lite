@@ -160,13 +160,64 @@ def validate_and_get_entry_point(entry, heading, level, curr_stage_entry_point, 
                 entry_point = scenarios.LOWW().generate_curriculum_entrypoints(
                     num_entrypoints=args.curr_stages
                 )[curr_stage_entry_point - 1][0]  # Use first airplane's entry point
+            elif scenario_name == "MvaGoAroundScenario":
+                # Handle MvaGoAroundScenario curriculum entries differently
+                scenario_instance = getattr(scenarios, scenario_name)()
+                
+                # Special handling for different number of airplanes
+                if num_airplanes == 2:
+                    # For two airplanes, get both entry points from the pair
+                    curriculum_entries = scenario_instance.generate_curriculum_entrypoints(
+                        num_entrypoints=args.curr_stages
+                    )
+                    
+                    if curriculum_entries is None:
+                        # Fallback if generate_curriculum_entrypoints returns None
+                        logger.warning("Could not generate curriculum entry points for MvaGoAroundScenario. Using default entry points.")
+                        return scenario_instance.entrypoints
+                    
+                    # Make sure we have entry points for the requested stage
+                    if curr_stage_entry_point - 1 >= len(curriculum_entries):
+                        logger.warning(f"Requested stage {curr_stage_entry_point} exceeds available stages. Using last available stage.")
+                        entry_point = curriculum_entries[-1]
+                    else:
+                        entry_point = curriculum_entries[curr_stage_entry_point - 1]
+                else:
+                    # For single airplane, use the first entry point
+                    curriculum_entries = scenario_instance.generate_curriculum_entrypoints(
+                        num_entrypoints=args.curr_stages
+                    )
+                    
+                    if curriculum_entries is None:
+                        # Fallback if generate_curriculum_entrypoints returns None
+                        logger.warning("Could not generate curriculum entry points for MvaGoAroundScenario. Using default entry points.")
+                        return scenario_instance.entrypoints[0]
+                    
+                    # Make sure we have entry points for the requested stage
+                    if curr_stage_entry_point - 1 >= len(curriculum_entries):
+                        logger.warning(f"Requested stage {curr_stage_entry_point} exceeds available stages. Using last available stage.")
+                        entry_point = curriculum_entries[-1][0]  # Use the first plane's entry point
+                    else:
+                        entry_point = curriculum_entries[curr_stage_entry_point - 1][0]  # Use the first plane's entry point
             else:
                 # Try to call generate_curriculum_entrypoints if it exists
                 scenario_instance = getattr(scenarios, scenario_name)()
                 if hasattr(scenario_instance, "generate_curriculum_entrypoints"):
-                    entry_point = scenario_instance.generate_curriculum_entrypoints(
+                    curriculum_entries = scenario_instance.generate_curriculum_entrypoints(
                         num_entrypoints=args.curr_stages
-                    )[curr_stage_entry_point - 1]
+                    )
+                    
+                    if curriculum_entries is None:
+                        # Fallback if generate_curriculum_entrypoints returns None
+                        logger.warning(f"Could not generate curriculum entry points for {scenario_name}. Using default entry points.")
+                        entry_point = scenario_instance.entrypoints[0]
+                    else:
+                        # Make sure we have entry points for the requested stage
+                        if curr_stage_entry_point - 1 >= len(curriculum_entries):
+                            logger.warning(f"Requested stage {curr_stage_entry_point} exceeds available stages. Using last available stage.")
+                            entry_point = curriculum_entries[-1]
+                        else:
+                            entry_point = curriculum_entries[curr_stage_entry_point - 1]
                 else:
                     # Fall back to the first entry point if curriculum not supported
                     entry_point = scenario_instance.entrypoints[0]
@@ -337,6 +388,13 @@ if __name__ == "__main__":
         if args.num_airplanes == 2:
             # Pass the entry points to the scenario
             scenario = scenario_class(random_entrypoints=args.random_entry, entry_point=entry_point)
+        else:
+            scenario = scenario_class(entry_point=entry_point)
+    elif args.scenario == "MvaGoAroundScenario":
+        # Handle MvaGoAroundScenario similarly to LOWW for two-plane curriculum
+        if args.num_airplanes == 2:
+            # Pass the entry points to the scenario
+            scenario = scenario_class(entry_point=entry_point)
         else:
             scenario = scenario_class(entry_point=entry_point)
     elif args.scenario == "ModifiedLOWW":

@@ -152,7 +152,7 @@ class LOWW(Scenario):
                 (52.88, 18.68),
                 (51.64, 21.35),
                 (46.08, 22.36)
-            ]), 1700, MvaType.OCEANIC),
+            ]), 100, MvaType.OCEANIC),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (44.95, 28.91),
                 (44.46, 31.76),
@@ -167,7 +167,7 @@ class LOWW(Scenario):
                 (57.97, 41.89),
                 (53.5, 31.43),
                 (44.95, 28.91)
-            ]), 1600, MvaType.OCEANIC)]
+            ]), 100, MvaType.OCEANIC)]
 
         self.runway = model.Runway(45.16, 43.26, 586, 160)
 

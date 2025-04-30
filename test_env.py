@@ -152,24 +152,24 @@ def main():
     original_init = model.Airplane.__init__
     
     # Global variable for autopilot setting
-    autopilot_enabled = args.autopilot
+    # autopilot_enabled = args.autopilot
     
-    def modified_init(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
-        # Call the original init with all its original parameters
-        original_init(self, sim_parameters, name, x, y, h, phi, v, h_min, h_max, v_min, v_max)
+    # def modified_init(self, sim_parameters, name, x, y, h, phi, v, h_min=0, h_max=38000, v_min=100, v_max=300):
+    #     # Call the original init with all its original parameters
+    #     original_init(self, sim_parameters, name, x, y, h, phi, v, h_min, h_max, v_min, v_max)
         
-        # Modify fuel parameters for more dramatic effects
-        self.fuel_mass = 2000    # Reduced fuel quantity
-        self.max_fuel = 2000     # Reduced max fuel
+    #     # Modify fuel parameters for more dramatic effects
+    #     self.fuel_mass = 2000    # Reduced fuel quantity
+    #     self.max_fuel = 2000     # Reduced max fuel
         
-        # Increased consumption rates
-        self.cruise_consumption = 2.0    # Higher base fuel flow (4x normal)
+    #     # Increased consumption rates
+    #     self.cruise_consumption = 2.0    # Higher base fuel flow (4x normal)
         
-        # Set autopilot based on global variable
-        self.autopilot_enabled = autopilot_enabled
+    #     # Set autopilot based on global variable
+    #     self.autopilot_enabled = autopilot_enabled
         
     # Apply the modified initialization
-    model.Airplane.__init__ = modified_init
+    # model.Airplane.__init__ = modified_init
     
     # Select the appropriate scenario based on user input
     if args.scenario == 'LOWW':
@@ -196,6 +196,7 @@ def main():
         render_mode=render_mode,
         wind_badness=args.wind_badness,
         wind_dirn=args.wind_dirn,
+        starting_fuel=10000
     )
 
     # Reset the environment

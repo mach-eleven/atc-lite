@@ -460,15 +460,12 @@ class AtcGym(gym.Env):
                         plane1.y - plane2.y
                     )
                     
-                    # Convert to nautical miles for aviation standards
-                    distance_nm = distance / 1852  # 1 nautical mile = 1852 meters
-                    
                     # Calculate vertical separation in feet
                     vertical_sep = abs(plane1.h - plane2.h)
                     
                     # Check if aircraft are too close (standard separation minima)
                     # Horizontal: 3 nautical miles, Vertical: 1000 feet
-                    if distance_nm < 5 and vertical_sep < 1000:
+                    if distance < 5 and vertical_sep < 1000:
                         # Collision detected - terminate episode
                         collision_penalty = -100
                         reward = collision_penalty

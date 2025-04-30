@@ -266,6 +266,20 @@ def add_arguments(parser):
         default=10000,
         help="Amount of fuel (kg) the airplane starts with during replay",
     )
+    parser.add_argument(
+        "--wind-badness", 
+        type=int, 
+        choices=range(0, 11), 
+        default=5, 
+        help="How strong and turbulent the wind should be (0-10)"
+    )
+    parser.add_argument(
+        "--wind-dirn", 
+        type=int, 
+        choices=range(0, 360), 
+        default=270, 
+        help="Wind direction in degrees (0-360)"
+    )
 
 
 if __name__ == "__main__":
@@ -344,6 +358,8 @@ if __name__ == "__main__":
         scenario=scenario,
         render_mode=render_mode,  # Use the determined render mode
         starting_fuel=args.starting_fuel,
+        wind_badness=args.wind_badness,
+        wind_dirn=args.wind_dirn,
     )
     model_ = PPO.load(
         args.checkpoint,
@@ -372,6 +388,9 @@ if __name__ == "__main__":
                 ),
                 scenario=scenario,
                 render_mode=render_mode,
+                starting_fuel=args.starting_fuel,
+                wind_badness=args.wind_badness,
+                wind_dirn=args.wind_dirn,
             )
             model_.set_env(env)
 

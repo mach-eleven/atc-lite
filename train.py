@@ -49,6 +49,7 @@ def add_arguments(parser):
     parser.add_argument('--random-entry', action='store_true', help='Use random entry points for airplanes', default=False)
     parser.add_argument('--starting-fuel', type=gt_0, default=10000, help='Amount of fuel (kg) the airplane starts with during training')
     parser.add_argument('--reduced-time-penalty', action='store_true', help='Use reduced time penalty for training', default=False)
+    parser.add_argument('--wind-dirn', type=int, choices=range(0, 360), default=270, help='Wind direction in degrees (0-360)')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

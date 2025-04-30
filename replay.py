@@ -304,7 +304,7 @@ if __name__ == "__main__":
     entry_point = validate_and_get_entry_point(
         args.entry, args.heading, args.level, args.curr_stage_entry_point, args.scenario, args.num_airplanes
     )
-    if airplane_count := args.num_airplanes) > 1:
+    if (airplane_count := args.num_airplanes) > 1:
         # Ensure entry points are a list for multiple airplanes
         if not isinstance(entry_point, list):
             entry_point = [entry_point] * airplane_count

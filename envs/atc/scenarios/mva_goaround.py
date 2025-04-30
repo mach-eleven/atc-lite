@@ -207,3 +207,22 @@ class MvaGoAroundScenario(Scenario):
                     minx <= entry1_adjusted.x <= maxx and miny <= entry1_adjusted.y <= maxy and
                     minx <= entry2_adjusted.x <= maxx and miny <= entry2_adjusted.y <= maxy
                 )
+                
+                if within_bounds:
+                    # Use the adjusted entry points
+                    curriculum_entries.append([entry1_adjusted, entry2_adjusted])
+                    # Print adjusted entry points for debugging
+                    logger.info(f"Stage {i+1}: Adjusted entry points for separation - Entry1: ({entry1_adjusted.x:.2f}, {entry1_adjusted.y:.2f}) Entry2: ({entry2_adjusted.x:.2f}, {entry2_adjusted.y:.2f})")
+                else:
+                    # Use the original entry points if adjustment would push them out of bounds
+                    curriculum_entries.append([entry1, entry2])
+                    logger.info(f"Stage {i+1}: Using original entry points - Entry1: ({entry1.x:.2f}, {entry1.y:.2f}) Entry2: ({entry2.x:.2f}, {entry2.y:.2f})")
+            else:
+                # No adjustment needed, use the original entry points
+                curriculum_entries.append([entry1, entry2])
+                logger.info(f"Stage {i+1}: Entry points with sufficient separation - Entry1: ({entry1.x:.2f}, {entry1.y:.2f}) Entry2: ({entry2.x:.2f}, {entry2.y:.2f})")
+        
+        # Debug info - print all curriculum entries
+        logger.info(f"Generated {len(curriculum_entries)} curriculum stages for MvaGoAroundScenario")
+        
+        return curriculum_entries

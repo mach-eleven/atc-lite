@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.spatial.distance import cdist
 from scipy.signal import resample
+import argparse
 
 try:
     from fastdtw import fastdtw
@@ -39,6 +40,21 @@ def curvature(traj):
 def speed_profile(traj):
     diffs = np.diff(traj, axis=0)
     return np.linalg.norm(diffs, axis=1)
+
+def estimate_fuel_use_realistic(traj, v_min=100, v_max=300, cruise_consumption=1.0):
+    traj = np.array(traj)
+    total_fuel = 0.0
+    for i in range(1, len(traj)):
+        dx, dy = traj[i,0] - traj[i-1,0], traj[i,1] - traj[i-1,1]
+        dist = np.sqrt(dx**2 + dy**2)
+        # Use a reasonable speed for fuel model (could use dist or a fixed cruise speed)
+        speed = max(dist, v_min)
+        speed_factor = (speed - v_min) / (v_max - v_min)
+        base_consumption = cruise_consumption * (0.8 + 0.4 * speed_factor**2)
+        # Fuel burned is proportional to distance, not time steps
+        fuel_burned = base_consumption * dist
+        total_fuel += fuel_burned
+    return total_fuel
 
 def compute_metrics(traj1, traj2):
     t1 = np.array(traj1[0][0])
@@ -98,7 +114,20 @@ def compute_metrics(traj1, traj2):
     sp2 = speed_profile(t2_rs)
     minlen = min(len(sp1), len(sp2))
     speed_l2 = np.linalg.norm(sp1[:minlen] - sp2[:minlen])
-    return {
+    # Fuel/energy efficiency comparison (realistic)
+    fuel1 = estimate_fuel_use_realistic(t1)
+    fuel2 = estimate_fuel_use_realistic(t2)
+    fuel1_per_unit = fuel1 / length1 if length1 > 0 else float('nan')
+    fuel2_per_unit = fuel2 / length2 if length2 > 0 else float('nan')
+    fuel_efficiency_ratio = fuel1_per_unit / fuel2_per_unit if fuel2_per_unit > 0 else float('nan')
+    metrics = {
+        'fuel_use_trajectory1': fuel1,
+        'fuel_use_trajectory2': fuel2,
+        'fuel_per_unit_distance_trajectory1': fuel1_per_unit,
+        'fuel_per_unit_distance_trajectory2': fuel2_per_unit,
+        'fuel_efficiency_ratio (saved/real)': fuel_efficiency_ratio,
+    }
+    metrics.update({
         'avg_pointwise_distance': avg_dist,
         'max_pointwise_distance': max_dist,
         'trajectory_length_difference': len_diff,
@@ -117,7 +146,8 @@ def compute_metrics(traj1, traj2):
         'trajectory2_max_curvature': max_curv2,
         'speed_profile_l2': speed_l2,
         'speed_profile_dtw': sp_dtw,
-    }, t1, t2
+    })
+    return metrics, t1, t2
 
 def plot_trajectories(t1, t2, outpath="traj_comparison.png"):
     plt.figure(figsize=(10, 8))
@@ -138,6 +168,9 @@ def plot_trajectories(t1, t2, outpath="traj_comparison.png"):
 def main():
     import glob
     import os
+    parser = argparse.ArgumentParser(description="Compare saved and real trajectories with optional cropping.")
+    parser.add_argument('--crop', type=int, default=0, help='Crop N points (as a fraction of the shorter trajectory) from the end of both trajectories before comparison')
+    args = parser.parse_args()
     saved_trajs = sorted(glob.glob("trajectory_*.py"), reverse=True)
     if not saved_trajs:
         print("No saved trajectory_*.py file found.")
@@ -150,6 +183,19 @@ def main():
     print(f"Comparing {saved_traj} (saved) and {real_traj} (real)...")
     traj1 = load_trajectory(saved_traj)
     traj2 = load_trajectory(real_traj)
+    crop = args.crop
+    t1_len = len(traj1[0][0])
+    t2_len = len(traj2[0][0])
+    if crop > 0:
+        min_len = min(t1_len, t2_len)
+        crop_frac = crop / min_len
+        crop1 = int(round(t1_len * crop_frac))
+        crop2 = int(round(t2_len * crop_frac))
+        if crop1 > 0:
+            traj1 = [[traj1[0][0][:-crop1]]]
+        if crop2 > 0:
+            traj2 = [[traj2[0][0][:-crop2]]]
+        print(f"Cropped last {crop1} points from saved trajectory and {crop2} points from real trajectory (fractional crop: {crop_frac:.3f}).")
     metrics, t1, t2 = compute_metrics(traj1, traj2)
     print("\n=== Trajectory Comparison Metrics ===")
     for k, v in metrics.items():

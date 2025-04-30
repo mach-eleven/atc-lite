@@ -13,3 +13,5 @@ test_logs/*
 temp_*
 
 *.mp4
+
+trajectory_*.py

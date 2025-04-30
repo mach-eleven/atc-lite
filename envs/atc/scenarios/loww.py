@@ -309,9 +309,9 @@ class LOWW(Scenario):
         # Define two distinct entry point positions with headings pointing to runway
         entry_points = [
             # First plane - Northeast approach
-            model.EntryPoint(54.0, 80.5, 50, [150]),  
+            model.EntryPoint(54.0, 80.5, 225, [150]),  
             # Second plane - West approach 
-            model.EntryPoint(10, 51, 270, [150]) 
+            model.EntryPoint(10, 51, 135, [150]) 
         ]
         
         # Calculate paths by extending along same heading from these points

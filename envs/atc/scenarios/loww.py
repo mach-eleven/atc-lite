@@ -152,7 +152,7 @@ class LOWW(Scenario):
                 (52.88, 18.68),
                 (51.64, 21.35),
                 (46.08, 22.36)
-            ]), 2700, MvaType.OCEANIC),
+            ]), 1700, MvaType.OCEANIC),
             model.MinimumVectoringAltitude(shape.Polygon([
                 (44.95, 28.91),
                 (44.46, 31.76),

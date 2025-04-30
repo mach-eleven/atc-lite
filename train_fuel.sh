@@ -6,7 +6,7 @@ python3 train.py --model ppo_sb3 --num-airplanes 1 \
  --eval-freq 2 \
  --eval-episodes 5 \
  --threads 10 \
- --starting-fuel 500 \
+ --starting-fuel 5000 \
  --reduced-time-penalty \
  --wind-badness 10 \
  --scenario MvaGoAroundScenario \

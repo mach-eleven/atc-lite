@@ -434,7 +434,7 @@ class LOWW(Scenario):
         The entry points are distributed evenly on the circle, and there are n_per_circle entry points per circle.
 
         The entry points are generated in a way that they are not too close to each other.
-        
+
         If n_per_circle is 5, we will have 5 entry points on the circle. But actually, each entry_point will have 2 versions, with 2 different headings.
         So we will have 10 entry points on the circle.
 
@@ -670,4 +670,48 @@ class ModifiedLOWW(LOWW):
                 (44.95, 28.91)
             ]), 2500, MvaType.GENERIC)]
 
+        self.runway = model.Runway(45.16, 43.26, 586, 160)
+
         self.airspace = model.Airspace(self.mvas, self.runway)
+        # Always use a high, safe entrypoint for training
+        self.entrypoints = [self.get_high_safe_entrypoint()]
+
+    def get_high_safe_entrypoint(self):
+        """
+        Returns a safe, high entry point at a far corner of the airspace, away from the runway and FAF.
+        """
+        highest_mva = max(mva.height for mva in self.mvas)
+        safe_altitude = min(highest_mva + 3000, 20000)  # Cap at 20,000 ft
+        safe_flight_level = int(round(safe_altitude / 100.0))
+        minx, miny, maxx, maxy = self.airspace.get_bounding_box()
+        corners = [
+            (minx, miny),
+            (minx, maxy),
+            (maxx, miny),
+            (maxx, maxy)
+        ]
+        rx, ry = self.runway.x, self.runway.y
+        far_corner = max(corners, key=lambda c: (c[0]-rx)**2 + (c[1]-ry)**2)
+        x, y = far_corner
+        # Move slightly inside the airspace to avoid edge issues
+        margin = 1.0
+        x = x + margin if x == minx else x - margin
+        y = y + margin if y == miny else y - margin
+        # Ensure the point is inside the airspace polygon
+        from shapely.geometry import Point
+        outline = self.airspace.get_outline_polygon()
+        pt = Point(x, y)
+        # If not inside, move toward runway until inside
+        steps = 100
+        for i in range(steps):
+            if outline.covers(pt):
+                break
+            # Move 1% closer to runway each step
+            x = x + (rx - x) * 0.01
+            y = y + (ry - y) * 0.01
+            pt = Point(x, y)
+        # Heading toward runway
+        dx = self.runway.x - x
+        dy = self.runway.y - y
+        heading = (np.degrees(np.arctan2(dy, dx)) + 90) % 360
+        return model.EntryPoint(x, y, heading, [safe_flight_level])

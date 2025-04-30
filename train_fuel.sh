@@ -11,5 +11,3 @@ python3 train.py --model ppo_sb3 --num-airplanes 1 \
  --wind-badness 10 \
  --scenario ModifiedLOWW \
  --wind-dirn 300
-
-

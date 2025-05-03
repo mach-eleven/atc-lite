@@ -15,6 +15,14 @@ The problem has been trained for 2 different scenarios:
 
 We have used the Proximal Policy Optimization (PPO) algorithm to train the agent, along with Curriculum Learning. The agent is trained using a reward function that is based on the distance between the aircraft and the runway, as well as the distance between the aircraft and other aircraft in the airspace. The agent is trained to maximize the reward function, while minimizing the distance to the runway and avoiding collisions with other aircraft.
 
+## Submission
+
+* Video is present at this link: [ATC-lite Video](https://youtu.be/J-xRird-wb8)
+* PDF report is present in the repository with the file name `report.pdf`.
+* The code is present in the repository, and the environment is implemented in the `envs` folder. The training code is present in the `train.py` file. The code is compatible with Python 3.12 and above.
+* You can use `replay.py` to visualize the trained agent's performance in the environment.
+* Best models are present in `final_models` folder.
+
 ## Training
 
 `train.py` is used to train the reinforcement learning agent.

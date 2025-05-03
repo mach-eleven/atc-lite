@@ -80,15 +80,8 @@ class FuelScenario(Scenario):
         else:
             # Fixed entry points positioned INSIDE the MVA areas, not on edges
             self.entrypoints = [
-                # Entry points in each MVA region
-                model.EntryPoint(7, 7, 45, [120, 150]),      # Inside Southwest MVA (mva_1)
-                model.EntryPoint(13, 7, 135, [130, 160]),    # Inside Southeast MVA (mva_2)
-                model.EntryPoint(13, 13, 225, [140, 170]),   # Inside Northeast MVA (mva_3)
-                model.EntryPoint(7, 13, 315, [120, 150]),    # Inside Northwest MVA (mva_4)
-                
-                # Additional entry points for more traffic variety
-                model.EntryPoint(8, 8, 0, [110, 140]),       # Inside Southwest MVA (mva_1)
-                model.EntryPoint(12, 7, 270, [130, 160]),    # Inside Southeast MVA (mva_2)
+                model.EntryPoint(2, 2, 45, [150]),   # Southwest corner, heading NE
+                model.EntryPoint(33, 38, 225, [150]) # Northeast corner, heading SW
             ]
 
     def _generate_random_entrypoints(self, num_points=6):

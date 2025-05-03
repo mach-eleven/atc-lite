@@ -488,7 +488,21 @@ class AtcGym(gym.Env):
                         logger.debug(f"Aircraft collision detected between {plane1.name} and {plane2.name}!")
                         # Update the win/loss buffer
                         self._win_buffer.append(0)
-                        break
+                        
+                        # Get the current observation before returning
+                        state = self._get_obs(mva)
+                        self.state = state
+                        
+                        # Normalize state if configured to do so
+                        if self._sim_parameters.normalize_state:
+                            state = 2 * (state - self.normalization_state_min) / (self.normalization_state_max - self.normalization_state_min) - 1
+                        
+                        # Update metrics
+                        self._update_metrics(reward)
+                        
+                        # Immediately return from the method when a collision is detected
+                        truncated = False
+                        return state, reward, self.done, truncated, {"original_state": self.state, "reward_components": reward_components}
 
         # Check if all aircraft are out of fuel or have reached the FAF
         all_reached_faf = all(hasattr(airplane, 'reached_faf') and airplane.reached_faf for airplane in self._airplanes)

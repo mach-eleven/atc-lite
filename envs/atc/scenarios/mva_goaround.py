@@ -20,7 +20,7 @@ class MvaGoAroundScenario(Scenario):
         mva_obstacle = model.MinimumVectoringAltitude(
             shape.Polygon([
                 (20, 16), (25, 16), (25, 24), (20, 24), (20, 16)
-            ]), 800000, model.MvaType.MOUNTAINOUS
+            ]), 180, model.MvaType.MOUNTAINOUS
         )
         # Low MVAs covering the rest of the airspace
         mva_low = model.MinimumVectoringAltitude(

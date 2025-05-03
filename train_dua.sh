@@ -1,1 +1,1 @@
-python train_multiple.py --model curr --num-airplanes 2 --scenario MvaGoAroundScenario --curr-stages 10 --max-episodes 1000 --wind-badness 5 --outdir logs/curr_goaround_2planes --threads 10 --curr-window-size 30
+python3 train_multiple.py --model curr --num-airplanes 2 --eval-freq 3 --scenario MvaGoAroundScenario --curr-stages 10 --max-episodes 1000 --wind-badness 5 --outdir logs/curr_goaround_2planes --threads 10 --curr-window-size 30

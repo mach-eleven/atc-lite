@@ -1,0 +1,1 @@
+python3 replay.py --model ppo_sb3 --episodes 1 --skip-frames 20 --scenario MvaGoAroundScenario --num-airplanes 2 --curr-stages 10 --curr-stage-entry-point 8 --checkpoint folder/curr_model_stage4_entry88.97991687204939_70.09789856408642_hdg247_ep120.zip

@@ -1304,6 +1304,9 @@ class AtcGym(gym.Env):
             separator = rendering.Line((x_pos - 10, panel_y + 10), (x_pos + 280, panel_y + 10))
             separator.set_color(200, 200, 200)  # Light gray
             self.viewer.add_onetime(separator)
+
+            y_pos = panel_y - 5  # Update y position for next aircraft
+
             
     def _render_approach(self):
         """

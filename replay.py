@@ -436,7 +436,7 @@ if __name__ == "__main__":
         # Handle MvaGoAroundScenario similarly to LOWW for two-plane curriculum
         if args.num_airplanes == 2:
             # Pass the entry points to the scenario
-            scenario = scenario_class(entry_point=entry_point)
+            scenario = scenario_class(entry_points=entry_point)
         else:
             scenario = scenario_class(entry_point=entry_point)
     elif args.scenario == "ModifiedLOWW":

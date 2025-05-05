@@ -1,1 +1,1 @@
-python3 replay.py --model ppo_sb3 --episodes 1 --skip-frames 20 --scenario MvaGoAroundScenario --num-airplanes 2 --curr-stages 10 --curr-stage-entry-point 8 --checkpoint folder/curr_model_stage4_entry88.97991687204939_70.09789856408642_hdg247_ep120.zip
+python3 replay.py --model ppo_sb3 --episodes 3 --skip-frames 20 --scenario MvaGoAroundScenario --num-airplanes 2 --curr-stages 10 --curr-stage-entry-point 5 --checkpoint logs/curr_goaround_2planes/stage5_entry93.35489609006173_71.98237320510802_hdg247/curr_model_stage5_entry93.35489609006173_71.98237320510802_hdg247_ep840.zip 

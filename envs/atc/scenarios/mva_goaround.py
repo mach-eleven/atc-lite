@@ -14,7 +14,7 @@ class MvaGoAroundScenario(Scenario):
     Scenario where the aircraft must go around a high MVA region to reach the runway.
     The MVA is placed directly between the entry point and the runway, forcing a detour.
     """
-    def __init__(self):
+    def __init__(self, entry_points: List[model.EntryPoint] = None):
         super().__init__()
         # Central high MVA obstacle
         mva_obstacle = model.MinimumVectoringAltitude(
@@ -92,7 +92,8 @@ class MvaGoAroundScenario(Scenario):
         self.entrypoints = [
             model.EntryPoint(2, 2, 45, [150]),   # Southwest corner, heading NE
             model.EntryPoint(33, 38, 225, [150]) # Northeast corner, heading SW
-        ]
+        ] if entry_points is None else entry_points
+
 
     def generate_curriculum_entrypoints(self, num_entrypoints: int) -> List[List[model.EntryPoint]]:
         """
